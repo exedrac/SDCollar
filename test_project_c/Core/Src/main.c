@@ -25,7 +25,7 @@
 #include "stdio.h"
 #include "stdint.h"
 
-uint8_t LED_speed = 0;
+uint8_t user_button = 0;
 
 /* USER CODE END Includes */
 
@@ -101,9 +101,6 @@ int main(void)
   MX_ICACHE_Init();
   /* USER CODE BEGIN 2 */
 
-  int freq = 1;
-  int delay_ms = 100;
-
   /* USER CODE END 2 */
 
   /* Initialize leds */
@@ -127,44 +124,24 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  uint8_t led_count = 3;
+  uint8_t current_led = 1;
+  uint8_t leds[] = {LED_GREEN, LED_BLUE, LED_RED};
+
   while (1)
   {
-
+	  if (user_button == 1){
+		  for (int i = 0; i < led_count; i++){
+			  BSP_LED_Off(leds[i]);
+		  }
+		  BSP_LED_On(leds[current_led]);
+		  current_led = (current_led + 1) % led_count;
+		  user_button = 0;
+	  }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  BSP_LED_On(LED_GREEN);
-	  BSP_LED_On(LED_RED);
-	  BSP_LED_On(LED_BLUE);
 
-	  HAL_Delay(delay_ms);
-
-	  BSP_LED_Off(LED_GREEN);
-	  BSP_LED_Off(LED_RED);
-	  BSP_LED_Off(LED_BLUE);
-
-	  HAL_Delay(delay_ms);
-
-	  switch (LED_speed){
-	  case 0: freq = 1; break;
-	  case 1: freq = 2; break;
-	  case 2: freq = 4; break;
-	  case 3: freq = 8; break;
-	  case 4: freq = 16; break;
-	  case 5: freq = 32; break;
-	  case 6: freq = 64; break;
-	  }
-
-	  if (LED_speed > 5) {
-		  LED_speed = 0;
-	  }
-
-	  if (freq==0){
-		  delay_ms = 0;
-	  }
-	  else {
-		  delay_ms = 1000 * 1/freq;
-	  }
   }
   /* USER CODE END 3 */
 }
@@ -276,14 +253,26 @@ static void MX_ICACHE_Init(void)
   */
 static void MX_GPIO_Init(void)
 {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
   /* USER CODE BEGIN MX_GPIO_Init_1 */
 
   /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_2|GPIO_PIN_3|GPIO_PIN_4|GPIO_PIN_5, GPIO_PIN_RESET);
+
+  /*Configure GPIO pins : PE2 PE3 PE4 PE5 */
+  GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_3|GPIO_PIN_4|GPIO_PIN_5;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 

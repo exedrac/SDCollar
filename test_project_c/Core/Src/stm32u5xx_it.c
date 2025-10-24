@@ -210,8 +210,8 @@ void EXTI13_IRQHandler(void)
   BSP_PB_IRQHandler(BUTTON_USER);
   /* USER CODE BEGIN EXTI13_IRQn 1 */
 
-  extern uint8_t LED_speed;
-  LED_speed += 1;
+  extern uint8_t user_button;
+  user_button = 1;
 
   /* USER CODE END EXTI13_IRQn 1 */
 }
