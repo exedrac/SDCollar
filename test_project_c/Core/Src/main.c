@@ -25,6 +25,8 @@
 #include "stdio.h"
 #include "stdint.h"
 
+#include "motor_control.h"
+
 uint8_t user_button = 0;
 
 /* USER CODE END Includes */
@@ -131,13 +133,20 @@ int main(void)
   uint8_t led_count = 3;
   uint8_t current_led = 1;
   uint8_t leds[] = {LED_GREEN, LED_BLUE, LED_RED};
+  float duty_cycle = 0.4;
+  uint8_t direction = MOTOR_STOP;
 
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
 
   while (1)
   {
-	  Motor_SetSpeed(25);
 	  if (user_button == 1){
+		  duty_cycle = (duty_cycle);
+		  Motor_SetSpeed(duty_cycle);
+		  direction = (direction + 1) % 3; // Loop between 3 States
+		  Motor_SetDirection(direction);
+
+
 		  for (int i = 0; i < led_count; i++){
 			  BSP_LED_Off(leds[i]);
 		  }

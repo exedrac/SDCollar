@@ -18,7 +18,7 @@ typedef enum{
 } MotorDirection;
 
 void Motor_Init(void);
-void Motor_SetSpeed(uint8_t duty_cycle);
+void Motor_SetSpeed(float duty_cycle);
 void Motor_SetDirection(MotorDirection direction);
 
 #endif /* INC_MOTOR_CONTROL_H_ */
