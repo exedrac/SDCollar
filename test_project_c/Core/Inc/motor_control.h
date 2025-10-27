@@ -17,8 +17,15 @@ typedef enum{
 	MOTOR_CW = 2
 } MotorDirection;
 
-void Motor_Init(void);
+typedef enum{
+	LOCK_ENABLED = 0,
+	LOCK_DISABLED = 1,
+} LockMode;
+
+void Motor_Initialize(void);
 void Motor_SetSpeed(float duty_cycle);
 void Motor_SetDirection(MotorDirection direction);
+void Lock_Initialize();
+void Lock_SetStatus(LockMode mode);
 
 #endif /* INC_MOTOR_CONTROL_H_ */

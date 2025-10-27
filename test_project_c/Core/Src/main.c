@@ -131,27 +131,50 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   uint8_t led_count = 3;
-  uint8_t current_led = 1;
   uint8_t leds[] = {LED_GREEN, LED_BLUE, LED_RED};
-  float duty_cycle = 0.4;
-  uint8_t direction = MOTOR_STOP;
+  for (int i = 0; i < led_count; i++){
+	  BSP_LED_On(leds[i]);
+	  HAL_Delay(200);
+  }
 
+  Motor_SetSpeed(0);
+  Motor_Initialize();
+  Lock_Initialize();
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
 
   while (1)
   {
+	  Motor_SetSpeed(0.5);
+	  Motor_SetDirection(MOTOR_CW);
+
+
 	  if (user_button == 1){
-		  duty_cycle = (duty_cycle);
-		  Motor_SetSpeed(duty_cycle);
-		  direction = (direction + 1) % 3; // Loop between 3 States
-		  Motor_SetDirection(direction);
+		  // Motor Sequence CW
+		  Lock_SetStatus(LOCK_DISABLED);
+		  HAL_Delay(1000);
 
+		  Motor_SetDirection(MOTOR_CW);
+		  Motor_SetSpeed(1);
+		  HAL_Delay(4000);
 
-		  for (int i = 0; i < led_count; i++){
-			  BSP_LED_Off(leds[i]);
-		  }
-		  BSP_LED_On(leds[current_led]);
-		  current_led = (current_led + 1) % led_count;
+		  Motor_SetDirection(MOTOR_STOP);
+		  Motor_SetSpeed(0);
+		  HAL_Delay(1000);
+		  Lock_SetStatus(LOCK_ENABLED);
+
+		  // Motor Sequence CCW
+		  HAL_Delay(1000);
+		  Lock_SetStatus(LOCK_DISABLED);
+
+		  Motor_SetDirection(MOTOR_CCW);
+		  Motor_SetSpeed(1);
+		  HAL_Delay(4000);
+
+		  Motor_SetDirection(MOTOR_STOP);
+		  Motor_SetSpeed(0);
+		  HAL_Delay(1000);
+		  Lock_SetStatus(LOCK_ENABLED);
+
 		  user_button = 0;
 	  }
     /* USER CODE END WHILE */
@@ -340,10 +363,13 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_2|GPIO_PIN_3|GPIO_PIN_4|GPIO_PIN_5, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_2|GPIO_PIN_3|GPIO_PIN_4|GPIO_PIN_5
+                          |GPIO_PIN_6, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : PE2 PE3 PE4 PE5 */
-  GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_3|GPIO_PIN_4|GPIO_PIN_5;
+  /*Configure GPIO pins : PE2 PE3 PE4 PE5
+                           PE6 */
+  GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_3|GPIO_PIN_4|GPIO_PIN_5
+                          |GPIO_PIN_6;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
