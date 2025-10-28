@@ -58,7 +58,7 @@ void Motor_SetDirection(MotorDirection direction){
 	return;
 }
 void Lock_Initialize(){
-	HAL_GPIO_WritePin(LOCK_BI1_PORT, LOCK_BI1_PIN, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(LOCK_BI1_PORT, LOCK_BI1_PIN, GPIO_PIN_SET);
 }
 void Lock_SetStatus(LockMode mode){
 	if (mode == LOCK_DISABLED){
