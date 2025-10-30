@@ -137,7 +137,7 @@ int main(void)
 	  HAL_Delay(200);
   }
 
-  Motor_SetSpeed(0);
+  Motor_SetSpeed(1);
   Motor_Initialize();
   Lock_Initialize();
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
@@ -146,7 +146,6 @@ int main(void)
   {
 	  if (user_button == 1){
 		  // Motor Sequence CW
-
 		  Lock_SetStatus(LOCK_DISABLED);
 		  Motor_SetDirection(MOTOR_CW);
 		  Motor_SetSpeed(1);

@@ -28,6 +28,7 @@ void Motor_SetSpeed(float duty_cycle){
 	}
 	else if(duty_cycle > 1){
 		pulse_width = max_count;
+		duty_cycle + 1;
 	}
 	else{
 		pulse_width = (uint32_t)(duty_cycle * max_count);
