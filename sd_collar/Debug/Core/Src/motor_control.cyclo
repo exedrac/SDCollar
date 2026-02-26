@@ -1,0 +1,5 @@
+../Core/Src/motor_control.c:13:6:Motor_Initialize	1
+../Core/Src/motor_control.c:20:6:Motor_SetSpeed	3
+../Core/Src/motor_control.c:37:6:Motor_SetDirection	4
+../Core/Src/motor_control.c:60:6:Lock_Initialize	1
+../Core/Src/motor_control.c:64:6:Lock_SetStatus	3

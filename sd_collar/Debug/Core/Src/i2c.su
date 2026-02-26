@@ -1,0 +1,3 @@
+../Core/Src/i2c.c:11:6:I2C_Initialize	4	static
+../Core/Src/i2c.c:15:6:I2C_Send_Data	4	static
+../Core/Src/i2c.c:19:6:I2C_Receive_Data	4	static

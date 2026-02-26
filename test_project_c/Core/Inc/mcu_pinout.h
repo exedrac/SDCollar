@@ -24,6 +24,7 @@
 // Solenoid Lock
 // Outputs: BO1 (only one pin needed)
 // You MUST ground BI2
+// TODO: Let's make this a logic pin and initialize it to ground so we don't need to run it through a circuit
 
 // PE5: CN9-18
 #define LOCK_BI1_PORT GPIOE
@@ -52,4 +53,16 @@
 // PG8: CN10-16: USART_A_RX
 #define USART_A_RX_PORT GPIOG
 #define USART_A_RX_PIN GPIO_PIN_8
+
+// UART4
+#define UART4_TX_PORT GPIOC
+#define UART4_TX_PIN GPIO_PIN_10
+#define UART4_RX_PORT GPIOC
+#define UART4_RX_PIN GPIO_PIN_11
+
+// UART5
+#define UART5_TX_PORT GPIOC
+#define UART5_TX_PIN GPIO_PIN_12
+#define UART5_RX_PORT GPIOD
+#define UART5_RX_PIN GPIO_PIN_2
 
