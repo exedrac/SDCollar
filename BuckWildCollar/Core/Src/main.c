@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "adc.h"
+#include "i2c.h"
 #include "icache.h"
 #include "usart.h"
 #include "gpio.h"
@@ -36,6 +37,10 @@
 #include <string.h>
 
 #define BUFFER_SIZE 64
+
+// external libraries
+#include "bno055.h"
+#include "bno_config.h"
 
 typedef enum{
 	idle,
@@ -56,8 +61,11 @@ uint8_t uart2_rx_buffer[BUFFER_SIZE] = "Error: Initial RX2 String\r\n";
 static int adc_resistor; // Display value directly from the ADC
 static int force_resistor; // Display pseudo "resistance value"
 
-//BNO055 Commands
-static uint8_t[4] =
+//BNO055
+bno055_t bno;
+error_bno err;
+
+
 
 
 /* USER CODE END Includes */
@@ -99,10 +107,15 @@ static void SystemPower_Config(void);
 
 
 
-
 static void print(UART_HandleTypeDef *huart, const char *fmt, ...);
+static int Get_ADC();
 
 static void print(UART_HandleTypeDef *huart, const char *fmt, ...) {
+	// Function to print messages through USART1
+	// Outputs through microUSB to laptop, 115200 baud
+	// Use for sending debug messages to terminal
+	// Set up in the console tab on bottom, and then on the bottom right of screen click the icon to the left of the minus sign (white box with blue on top)
+	// Then, do command shell console, and set Serial with 115200 baud.
   static char buffer[256];
   va_list args;
   va_start(args, fmt);
@@ -116,6 +129,8 @@ static void print(UART_HandleTypeDef *huart, const char *fmt, ...) {
 
 static int Get_ADC(){
 	//TODO: Add Calibration for Max / Min
+	// Get ADC value and put into global variable force_resistor
+
 	HAL_ADC_Start(&hadc1); // Start polling
 	HAL_ADC_PollForConversion(&hadc1, 1); // Check Timeout or switch to IT based
 	adc_resistor = HAL_ADC_GetValue(&hadc1); // Take ADC Value
@@ -185,6 +200,7 @@ int main(void)
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
   MX_ADC1_Init();
+  MX_I2C2_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
@@ -202,29 +218,33 @@ int main(void)
 
 
 
+//	bno = (bno055_t){
+//	  .i2c = &hi2c2, .addr = BNO_ADDR, .mode = BNO_MODE_IMU, ._temp_unit = 0,
+//	  // .ptr = &bno,
+//	};
+//
+//
+//    if ((err = bno055_init(&bno)) == BNO_OK) {
+//        print(&huart1, "[+] BNO055 init success\r\n");
+//        HAL_Delay(100);
+//    } else {
+//        print(&huart1, "[!] BNO055 init failed\r\n");
+//        print(&huart1, "%s\n", bno055_err_str(err));
+//        Error_Handler();
+//    }
 
 
-  while(1){
 
 
-//	  uint8_t empty[BUFFER_SIZE] = "";
-//	  memcpy(rx_buffer, empty, BUFFER_SIZE);
-//	  HAL_UART_Receive (&huart2, rx_buffer, 12, 5);
-//	  HAL_UART_Transmit(&huart1, rx_buffer, 12, 5);
-//	  print(&huart1, "\r\n");
-//	  HAL_Delay(20);
 
-//	  uint8_t rx_buffer1[4] = {0xAA, 0x01, 0x2C, 02};
-//	  //HAL_UART_Transmit(&huart1, rx_buffer1, 12, 5);
-//	  HAL_UART_Transmit(&huart2, rx_buffer1, 12, 5);
-//	  HAL_UART_Receive (&huart2, rx_buffer, 12, 5);
-//	  HAL_UART_Transmit (&huart1, rx_buffer, 12, 5);
-  }
+
+
 
 
   int button;
   int state = idle;
 
+  print(&huart1, "Entering Main Loop");
   while(1){
 	  if (state == idle){
 		  button = BSP_PB_GetState(BUTTON_USER);
@@ -269,12 +289,9 @@ int main(void)
 
 
 
-  while (1)
-  {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-  }
   /* USER CODE END 3 */
 }
 
