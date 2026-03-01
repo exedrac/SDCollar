@@ -109,6 +109,9 @@ static void print(UART_HandleTypeDef *huart, const char *fmt, ...) {
   return;
 }
 
+
+
+
 //static void uart_rx(UART_HandleTypeDef *huart, uint8_t *buffer){
 //	HAL_UART_Receive_IT(huart, (uint8_t *)buffer, BUFFER_SIZE);
 //}
@@ -182,25 +185,18 @@ int main(void)
 
 
 
-
-
-  int resistance = 0;
-  initAD();
   while(1){
-
-	  resistance = calculateAD();
-	  resistance = HAL_ADC_GetValue(&hadc1);
-	  print(&huart1, "%d\r\n", resistance);
+	  uint8_t empty[BUFFER_SIZE] = "";
+	  memcpy(rx_buffer, empty, BUFFER_SIZE);
+	  HAL_UART_Receive (&huart2, rx_buffer, 12, 5);
+	  HAL_UART_Transmit(&huart1, rx_buffer, 12, 5);
+	  print(&huart1, "\r\n");
+	  HAL_Delay(20);
   }
-
-
-
-
 
 
   int button;
   int state = idle;
-  char debug_msg[BUFFER_SIZE] = "Error: Initial Debug Message";
 
   while(1){
 	  if (state == idle){
