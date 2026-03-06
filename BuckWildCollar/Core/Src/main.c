@@ -54,7 +54,7 @@ typedef enum{
 uint8_t uart1_tx_buffer[BUFFER_SIZE] = "Error: Initial TX1 String\r\n";
 uint8_t uart1_rx_buffer[BUFFER_SIZE] = "Error: Initial RX1 String\r\n";
 uint8_t uart2_tx_buffer[BUFFER_SIZE] = "Error: Initial TX2 String\r\n";
-uint8_t uart2_rx_buffer[BUFFER_SIZE] = "Error: Initial RX2 String\r\n";
+uint8_t uart2_rx_buffer[BUFFER_SIZE] = ""; // "Error: Initial RX2 String\r\n";
 
 // ADC
 // 14-bit = 16384 MAX
@@ -65,6 +65,7 @@ static int force_resistor; // Display pseudo "resistance value"
 bno055_t bno;
 error_bno err;
 
+static uint8_t empty_array[BUFFER_SIZE] = "";
 
 
 
@@ -201,8 +202,9 @@ int main(void)
   MX_USART2_UART_Init();
   MX_ADC1_Init();
   MX_I2C2_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
-
+  print(&huart1, "Peripherals Configured");
   /* USER CODE END 2 */
 
   /* Initialize leds */
@@ -213,32 +215,61 @@ int main(void)
   /* Initialize USER push-button, will be used to trigger an interrupt each time it's pressed.*/
   BSP_PB_Init(BUTTON_USER, BUTTON_MODE_EXTI);
 
+
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
 
 
-//	bno = (bno055_t){
-//	  .i2c = &hi2c2, .addr = BNO_ADDR, .mode = BNO_MODE_IMU, ._temp_unit = 0,
-//	  // .ptr = &bno,
-//	};
-//
-//
-//    if ((err = bno055_init(&bno)) == BNO_OK) {
-//        print(&huart1, "[+] BNO055 init success\r\n");
-//        HAL_Delay(100);
-//    } else {
-//        print(&huart1, "[!] BNO055 init failed\r\n");
-//        print(&huart1, "%s\n", bno055_err_str(err));
-//        Error_Handler();
-//    }
+  uint8_t test_message[64];
+  test_message[0] = 170;
+  test_message[1] = 0x00;
+  test_message[2] = 0x3D;
+  test_message[3] = 0x01;
+  test_message[4] = 0b00001100; // xxxx1100b for NDOF
+  memcpy(uart2_tx_buffer, test_message, BUFFER_SIZE);
+  HAL_Delay(20);
+  print(&huart1, "\r\n");
+  HAL_UART_Transmit(&huart2, uart2_tx_buffer, 5, 10);
+  HAL_UART_Receive(&huart2, uart2_rx_buffer, BUFFER_SIZE, 10);
+
+  test_message[0] = 170;
+  test_message[1] = 1;
+  test_message[2] = 0x19;
+  test_message[3] = 2;
+
+
+  memcpy(uart2_tx_buffer, test_message, BUFFER_SIZE);
+  print(&huart1, "\r\n");
+
+  uint16_t combined;
+
+  while(1){
+	 HAL_UART_Transmit(&huart2, uart2_tx_buffer, 4, 10);
+	 HAL_UART_Receive(&huart2, uart2_rx_buffer, BUFFER_SIZE, 10);
+
+	 HAL_Delay(10);
+
+//	 for (int i=0; i<BUFFER_SIZE; i++){
+//		 if (uart2_rx_buffer[i] < 0x10){
+//			 print(&huart1, "0%x", uart2_rx_buffer[i]);
+//		 }
+//		 else{
+//			 print(&huart1, "%x", uart2_rx_buffer[i]);
+//		 }
+//	 }
+
+	 // SUSPECT LINE OF CODE HERE>>>>> only goes up to 256/???s WJUYYYYHYYYY
+	 combined = (uart2_rx_buffer[2] << 8 | uart2_rx_buffer[3]);
+	 print(&huart1, "%d", combined);
 
 
 
+	 print(&huart1, "\r\n");
+	 memcpy(uart2_rx_buffer, empty_array, BUFFER_SIZE);
 
 
-
-
+  }
 
 
   int button;
@@ -318,7 +349,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   RCC_OscInitStruct.MSIState = RCC_MSI_ON;
   RCC_OscInitStruct.MSICalibrationValue = RCC_MSICALIBRATION_DEFAULT;
-  RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_4;
+  RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_2;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
@@ -332,11 +363,11 @@ void SystemClock_Config(void)
                               |RCC_CLOCKTYPE_PCLK3;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_MSI;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB3CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
   {
     Error_Handler();
   }
