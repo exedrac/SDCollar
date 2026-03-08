@@ -1,3 +1,0 @@
-../Src/msoe_stm_delay.c:39:6:msoe_delay_init	4	static
-../Src/msoe_stm_delay.c:54:6:msoe_delay_us	16	static
-../Src/msoe_stm_delay.c:100:6:msoe_delay_ms	16	static

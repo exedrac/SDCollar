@@ -1,8 +1,0 @@
-"./Drivers/CMSIS/Device/ST/STM32U5xx/Source/Templates/system_stm32u5xx.o"
-"./Src/msoe_clk_setup.o"
-"./Src/msoe_stm_delay.o"
-"./Src/msoe_stm_lcd.o"
-"./Src/st7735.o"
-"./Src/stm32_adafruit_lcd.o"
-"./Src/syscalls.o"
-"./Src/sysmem.o"
