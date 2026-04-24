@@ -1,7 +1,16 @@
 #MicroXplorer Configuration settings - do not modify
+ADC1.Channel-1\#ChannelRegularConversion=ADC_CHANNEL_4
 ADC1.CommonPathInternal=null|null|null|null
-ADC1.IPParameters=NbrOfConversion,master,CommonPathInternal
+ADC1.ContinuousConvMode=ENABLE
+ADC1.EnableRegularConversion=ENABLE
+ADC1.GainCompensation=0
+ADC1.IPParameters=NbrOfConversion,GainCompensation,EnableRegularConversion,ContinuousConvMode,Rank-1\#ChannelRegularConversion,Channel-1\#ChannelRegularConversion,SamplingTime-1\#ChannelRegularConversion,OffsetNumber-1\#ChannelRegularConversion,MonitoredBy-1\#ChannelRegularConversion,NbrOfConversionFlag,master,CommonPathInternal
+ADC1.MonitoredBy-1\#ChannelRegularConversion=__NULL
 ADC1.NbrOfConversion=1
+ADC1.NbrOfConversionFlag=1
+ADC1.OffsetNumber-1\#ChannelRegularConversion=ADC_OFFSET_NONE
+ADC1.Rank-1\#ChannelRegularConversion=1
+ADC1.SamplingTime-1\#ChannelRegularConversion=ADC_SAMPLETIME_5CYCLE
 ADC1.master=1
 BSP_IP_NAME=NUCLEO-U575ZI-Q
 CAD.formats=
@@ -103,6 +112,7 @@ NVIC.TIM17_IRQn=true\:7\:0\:false\:false\:true\:false\:true\:true
 NVIC.TimeBase=TIM17_IRQn
 NVIC.TimeBaseIP=TIM17
 NVIC.USART1_IRQn=true\:0\:0\:false\:false\:true\:true\:true\:true
+NVIC.USART2_IRQn=true\:0\:0\:false\:false\:true\:true\:true\:true
 NVIC.USART3_IRQn=true\:0\:0\:false\:false\:true\:true\:true\:true
 NVIC.UsageFault_IRQn=true\:0\:0\:false\:false\:true\:false\:false\:false
 PA10.Locked=true

@@ -1353,7 +1353,6 @@ HAL_StatusTypeDef HAL_UART_Transmit_IT(UART_HandleTypeDef *huart, const uint8_t 
 
       /* Enable the Transmit Data Register Empty interrupt */
       ATOMIC_SET_BIT(huart->Instance->CR1, USART_CR1_TXEIE_TXFNFIE);
-
     }
 
     return HAL_OK;

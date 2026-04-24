@@ -162,6 +162,37 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
 
 
 
+
+
+
+
+
+
+
+#define TMP102_I2C_ADDR 0x48
+#define I2C_TIMING_100KHZ 0x10C0ECFF
+#define SINE_SAMPLES 32
+#define SYSCLK_HZ 160000000
+
+void I2C1_Init(void)
+{
+RCC->AHB2ENR1 |= (1 << 1); // GPIOB
+RCC->APB1ENR1 |= (1 << 21); // I2C1
+GPIOB->MODER &= ~((3 << (8 * 2)) | (3 << (9 * 2)));
+GPIOB->MODER |= ((2 << (8 * 2)) | (2 << (9 * 2)));
+GPIOB->OTYPER |= (1 << 8) | (1 << 9);
+GPIOB->PUPDR &= ~((3 << (8 * 2)) | (3 << (9 * 2)));
+GPIOB->PUPDR |= ((1 << (8 * 2)) | (1 << (9 * 2)));
+GPIOB->AFR[1] &= ~(0xFF);
+GPIOB->AFR[1] |= (0x44);
+ I2C1->CR1 &= ~(1 << 0);
+I2C1->TIMINGR = I2C_TIMING_100KHZ;
+I2C1->CR1 |= (1 << 0); // Enable I2C
+}
+
+
+
+
 /* USER CODE END 0 */
 
 /**
@@ -215,9 +246,17 @@ int main(void)
   /* Initialize USER push-button, will be used to trigger an interrupt each time it's pressed.*/
   BSP_PB_Init(BUTTON_USER, BUTTON_MODE_EXTI);
 
-
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+
+  int address = 0x29;
+  int error = 0;
+  uint8_t msg1[64] = "Test";
+
+
+
+
+
 
 
 

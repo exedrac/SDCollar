@@ -40,11 +40,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define BUFFER_SIZE 64
+#define BUFFER_SIZE 32
 
 // external libraries
-//#include "bno055.h"
-//#include "bno_config.h"
+#include "bno055.h"
+#include "bno_config.h"
 
 typedef enum{
 	idle,
@@ -52,27 +52,40 @@ typedef enum{
 	active,
 	orientation_receive,
 	adc_receive,
+
+	menu,
+
+	demo_adc,
+	demo_bno055,
+	demo_stx3,
+	demo_maxm10s,
+
+	test,
 } Microcontroller_State;
 
 // Useful Variables
+uint8_t storage_buffer[BUFFER_SIZE] = "Error. Storage Buffer.";
+
 uint8_t uart1_tx_buffer[BUFFER_SIZE] = "Error: Initial TX1 String\r\n";
 uint8_t uart1_rx_buffer[BUFFER_SIZE] = "Error: Initial RX1 String\r\n";
 uint8_t uart2_tx_buffer[BUFFER_SIZE] = "Error: Initial TX2 String\r\n";
-uint8_t uart2_rx_buffer[BUFFER_SIZE] = ""; // "Error: Initial RX2 String\r\n";
+uint8_t uart2_rx_buffer[BUFFER_SIZE] = "Error: Initial RX2 String\r\n";
 
-// ADC
-// 14-bit = 16384 MAX
-static int adc_resistor; // Display value directly from the ADC
-static int force_resistor; // Display pseudo "resistance value"
+uint8_t user_button = 0;
 
-//BNO055
-//bno055_t bno;
-//error_bno err;
+/* BNO055 Notes
+ * eul_x: 0->360
+ * eul_y: -90->90
+ * eul_z: -180->180
+ * lin_x: Z-axis
+ * lin_y: X-Axis
+ * lin_z: Y-Axis
+ */
 
+// UART
 static uint8_t empty_array[BUFFER_SIZE] = "";
 
 // Prototypes
-
 static void print(const char *fmt, ...);
 static int Get_ADC();
 
@@ -100,20 +113,126 @@ static int Get_ADC(){
 	//TODO: Add Calibration for Max / Min
 	// Get ADC value and put into global variable force_resistor
 
+	int adc_value;
+	int force_resistor;
+
 	HAL_ADC_Start(&hadc1); // Start polling
 	HAL_ADC_PollForConversion(&hadc1, 1); // Check Timeout or switch to IT based
-	adc_resistor = HAL_ADC_GetValue(&hadc1); // Take ADC Value
+	adc_value = HAL_ADC_GetValue(&hadc1); // Take ADC Value
 	HAL_ADC_Stop(&hadc1); // Stop polling
 
-	force_resistor = adc_resistor; // TODO: Convert from adc_resistor to "resistance" value.
+	force_resistor = adc_value; // TODO: Convert from adc_resistor to "resistance" value.
 	return force_resistor;
 }
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
-  return; // ADC Callback for Later Use??
+	return; // ADC Callback for Later Use??
 }
 
+void bno_enable(){
+	uint8_t test_message[64];
+	test_message[0] = 170;
+	test_message[1] = 0x00;
+	test_message[2] = 0x3D;
+	test_message[3] = 0x01;
+	test_message[4] = 0x0C; // xxxx1100b for NDOF
+	memcpy(uart2_tx_buffer, test_message, BUFFER_SIZE);
+	HAL_UART_Transmit(&huart2, uart2_tx_buffer, 5, 10);
+	HAL_UART_Receive(&huart2, uart2_rx_buffer, BUFFER_SIZE, 10);
 
+	return;
+}
+
+void bno_write_units(){
+	// TODO: Entire Function (not necessary if we are writing 0x00 since that is reset)
+	uint8_t test_message[64];
+	test_message[0] = 170;
+	test_message[1] = 0x00;
+	test_message[2] = 0x3B;
+	test_message[3] = 0x01;
+	test_message[4] = 0b00000000;
+	// 0x00 = Celsius, Degrees, DPS, m/s^2:
+	// 1LSB, 16LSB, 16LSB, 100LSB
+	// Pitch:
+	memcpy(uart2_tx_buffer, test_message, BUFFER_SIZE);
+	print("\r\n");
+	HAL_UART_Transmit(&huart2, uart2_tx_buffer, 5, 10);
+	HAL_UART_Receive(&huart2, uart2_rx_buffer, BUFFER_SIZE, 10);
+
+	return;
+}
+
+uint32_t bno_read(uint8_t address){
+	// Read Time @32 Bytes: ~2.5ms
+	// Return 2 bytes of data
+
+	uint8_t test_message[BUFFER_SIZE];
+	uint16_t combined = 0;
+	test_message[0] = 170; // 0xAA: Start Byte
+	test_message[1] = 1; // 0x01: Read
+	test_message[2] = address; // Register Address
+	test_message[3] = 2; // Length
+	memcpy(uart2_tx_buffer, test_message, BUFFER_SIZE); // Copy message to tx2 buffer
+
+	HAL_UART_Transmit(&huart2, uart2_tx_buffer, 4, 1);
+	HAL_UART_Receive(&huart2, uart2_rx_buffer, BUFFER_SIZE, 5); // Receive Data
+
+	combined = (uart2_rx_buffer[2] << 8 | uart2_rx_buffer[3]);
+
+
+
+// 	// Print "combined", which is the MSB and LSB put together to get the full number
+//	if (combined != 0){
+//		print("%d", combined);
+//		print("\r\n");
+//	}
+
+//	 // Print Raw Buffer Values
+//	 for (int i=0; i<BUFFER_SIZE; i++){
+//		 if (uart2_rx_buffer[i] < 0x10){
+//			 print("0%x", uart2_rx_buffer[i]);
+//		 }
+//		 else{
+//			 print("%x", uart2_rx_buffer[i]);
+//		 }
+//	 }
+//	 print("\r\n");
+
+	memcpy(uart2_rx_buffer, empty_array, BUFFER_SIZE);
+	return combined;
+}
+
+int bno_read_to_buffer(uint8_t *buffer, uint8_t address, uint8_t length){
+	// Read Time @32 Bytes: ~2.5ms
+	memcpy(buffer, empty_array, BUFFER_SIZE);
+	uint8_t test_message[BUFFER_SIZE];
+	test_message[0] = 170; // 0xAA: Start Byte
+	test_message[1] = 1; // 0x01: Read
+	test_message[2] = address; // Register Address
+	test_message[3] = length; // Length
+	memcpy(uart2_tx_buffer, test_message, BUFFER_SIZE); // Copy message to tx2 buffer
+
+	HAL_UART_Transmit(&huart2, uart2_tx_buffer, 4, 10);
+	HAL_UART_Receive(&huart2, buffer, BUFFER_SIZE, 10); // Receive Data
+	if (buffer[0] == 0xEE){
+		return 0;
+	}
+	return 1;
+}
+
+void print_hex(uint8_t *buffer, uint8_t length){
+	if (buffer[0] == 0xEE){
+		return; // Error Code
+	}
+	for (int i=0; i<length; i++){
+		if (buffer[i] < 0x10){
+			print("0%x", buffer[i]);
+		}
+		else{
+			print("%x", buffer[i]);
+		}
+	}
+}
 
 
 
@@ -206,17 +325,128 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
+  int adc_value;
+  int state;
+
+  int eul_x = 0;
+  int eul_y = 0;
+  int eul_z = 0;
+  int lin_x = 0;
+  int lin_y = 0;
+  int lin_z = 0;
+  int mag_x = 0;
+  int mag_y = 0;
+  int mag_z = 0;
+  int temp = 0;
+
+  int calibration_status = 0;
+
+  int menu_index = 0;
+  int menu_length = 4;
+  uint8_t menu_0[32] = "Force Resistor";
+  uint8_t menu_1[32] = "IMU Sensor";
+  uint8_t menu_2[32] = "GPS Transmit";
+  uint8_t menu_3[32] = "GPS Receive";
 
 
 
 
+  state = demo_adc;
+  print("Entered Main Loop\r\n");
 
-
-
-
-  print("Entered Main Loop");
+  HAL_Delay(50);
+  bno_enable();
   while(1){
+	  BSP_LED_Toggle(LED_GREEN);
+	  user_button = BSP_PB_GetState(BUTTON_USER);
 
+	  if (state == menu)
+	  {
+
+	  }
+	  else if (state == demo_adc)
+	  {
+		  adc_value = Get_ADC();
+		  print("Force Sensor: %d\r\n", adc_value);
+		  HAL_Delay(100);
+
+	  	  if (user_button == 1){
+	  		  state = demo_bno055;
+	  		  user_button = 0;
+	  		  BSP_LED_Off(LED_GREEN);
+	  		  BSP_LED_On(LED_BLUE);
+	  		  HAL_Delay(200);
+	  		  BSP_LED_Off(LED_BLUE);
+	  	  }
+	  }
+	  else if (state == demo_bno055)
+	  {
+		  bno_enable();
+
+		  // Data from BNO055 is represented as int16_t. Must be typecast.
+		  // Things to watch for: Incoming byte order, data size (1 vs. 2 bytes usually)
+		  if (bno_read_to_buffer(storage_buffer, 0x1A, 2) == 1){
+			  eul_x = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
+		  }
+		  if (bno_read_to_buffer(storage_buffer, 0x1C, 2) == 1){
+			  eul_y = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
+		  }
+		  if (bno_read_to_buffer(storage_buffer, 0x1E, 2) == 1){
+			  eul_z = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
+		  }
+
+		  if (bno_read_to_buffer(storage_buffer, 0x28, 2) == 1){
+			  lin_x = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
+		  }
+		  if (bno_read_to_buffer(storage_buffer, 0x2A, 2) == 1){
+			  lin_y = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
+		  }
+		  if (bno_read_to_buffer(storage_buffer, 0x2C, 2) == 1){
+			  lin_z = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
+		  }
+
+		  if (bno_read_to_buffer(storage_buffer, 0x34, 1) == 1){
+			  temp = (int16_t)(storage_buffer[2]);
+		  }
+
+		  if (bno_read_to_buffer(storage_buffer, 0x2A, 2) == 1){
+			  mag_x = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
+		  }
+		  if (bno_read_to_buffer(storage_buffer, 0x28, 2) == 1){
+			  mag_y = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
+		  }
+
+		  if (bno_read_to_buffer(storage_buffer, 0x34, 1) == 1){
+			  mag_z = (int16_t)(storage_buffer[2]);
+		  }
+
+		  eul_x = eul_x / 16;
+		  eul_y = eul_y / 16;
+		  eul_z = eul_z / 16;
+		  lin_x = lin_x / 1;
+		  lin_y = lin_y / 1;
+		  lin_z = lin_z / 1;
+		  temp = temp * 1;
+
+		  // TODO: Figure out how to print floats.
+		  // print("lX: %.1f, lY: %.1f, lZ: %.1f, eX: %.1f, eY: %.1f, eZ: %.1f, Temp: %.1f\r\n", lin_x, lin_y, lin_z, eul_x, eul_y, eul_z, temp);
+		  print("lX: %d, lY: %d, lZ: %d, eX: %d, eY: %d, eZ: %d, Temp: %d\r\n", lin_y, lin_x, lin_z, eul_x, eul_y, eul_z, temp); // NOTE: LINEAR VALUES XYZ ARE NOT CORRESPONDING TO WHAT IS PRINTED!!!
+
+	  	  if (user_button == 1){
+	  		  state = demo_adc;
+	  		  user_button = 0;
+	  		  BSP_LED_Off(LED_GREEN);
+	  		  BSP_LED_On(LED_BLUE);
+	  		  HAL_Delay(200);
+	  		  BSP_LED_Off(LED_BLUE);
+	  	  }
+
+	  }
+	  else{
+		  BSP_LED_Toggle(LED_RED);
+		  print("Error: Please Restart Demo.");
+	  }
+  }
   }
 
 
@@ -239,9 +469,9 @@ int main(void)
 
 
     /* USER CODE END WHILE */
+
     /* USER CODE BEGIN 3 */
   /* USER CODE END 3 */
-}
 
 /**
   * @brief System Clock Configuration
@@ -350,6 +580,7 @@ void Error_Handler(void)
   __disable_irq();
   while (1)
   {
+	  print("ERROR HANDLER");
   }
   /* USER CODE END Error_Handler_Debug */
 }
