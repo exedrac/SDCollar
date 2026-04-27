@@ -1,20 +1,16 @@
 /* USER CODE BEGIN Header */
-/**
-  ******************************************************************************
-  * @file           : main.c
-  * @brief          : Main program body
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2026 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
+
+/*
+ *
+ * BUCK WILD COLLAR
+ * buckwildcollars.com
+ *
+ *
+ * Perpetrators:
+ * Paul Eickhoff
+ *
+ */
+
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
@@ -40,64 +36,73 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define BUFFER_SIZE 32
-
-// external libraries
-#include "bno055.h"
-#include "bno_config.h"
+#define BUFFER_SIZE 256
+#define UART_DELAY 10
 
 typedef enum{
-	idle,
-	button_pressed,
 	active,
-	orientation_receive,
-	adc_receive,
-
 	menu,
+	sleep,
 
+	gps_receive,
+	gps_transmit,
+	sense_bno055,
+	motor_adjust,
+
+	demo_active,
 	demo_adc,
 	demo_bno055,
-	demo_stx3,
 	demo_maxm10s,
+	demo_maxm10s_parsed,
+	demo_motor,
+	demo_lock,
+	demo_stx3,
+	demo_system,
 
-	test,
+	power_peripherals,
+	power_sleep,
 } Microcontroller_State;
 
-// Useful Variables
-uint8_t storage_buffer[BUFFER_SIZE] = "Error. Storage Buffer.";
 
-uint8_t uart1_tx_buffer[BUFFER_SIZE] = "Error: Initial TX1 String\r\n";
-uint8_t uart1_rx_buffer[BUFFER_SIZE] = "Error: Initial RX1 String\r\n";
-uint8_t uart2_tx_buffer[BUFFER_SIZE] = "Error: Initial TX2 String\r\n";
-uint8_t uart2_rx_buffer[BUFFER_SIZE] = "Error: Initial RX2 String\r\n";
-
-uint8_t user_button = 0;
-
-/* BNO055 Notes
- * eul_x: 0->360
- * eul_y: -90->90
- * eul_z: -180->180
- * lin_x: Z-axis
- * lin_y: X-Axis
- * lin_z: Y-Axis
+/*
+ * UART Buffers (The Flash Devourers!)
+ * TODO: Balance buffer size with useful messages. We have 2MB flash total =~ 1.02MB
  */
 
-// UART
-static uint8_t empty_array[BUFFER_SIZE] = "";
+
+uint8_t storage_buffer[BUFFER_SIZE] = "Initial Storage Buffer.";
+const uint8_t empty_buffer[BUFFER_SIZE] = ""; // Used to clear buffers with memcpy. Also is an "impostor buffer".
+
+uint8_t uart1_tx_buffer[BUFFER_SIZE] = "Initial TX1 String\r\n";
+uint8_t uart1_rx_buffer[BUFFER_SIZE] = "Initial RX1 String\r\n";
+uint8_t uart2_tx_buffer[BUFFER_SIZE] = "Initial TX2 String\r\n";
+uint8_t uart2_rx_buffer[BUFFER_SIZE] = "Initial RX2 String\r\n";
+uint8_t uart3_tx_buffer[BUFFER_SIZE] = "Initial TX3 String\r\n";
+uint8_t uart3_rx_buffer[BUFFER_SIZE] = "Initial RX3 String\r\n";
+
+uint8_t lpuart1_tx_buffer[BUFFER_SIZE] = "Initial lpTX1 String\r\n";
+uint8_t lpuart1_rx_buffer[BUFFER_SIZE] = "Initial lpRX1 String\r\n";
+
+//
+uint8_t user_button = 0;
+uint8_t reset = 0;
 
 // Prototypes
 static void print(const char *fmt, ...);
+static void uart_send(char *buffer);
+static void uart_receive(char *buffer);
 static int Get_ADC();
 
 // Functions
 
 static void print(const char *fmt, ...) {
-	// Function to print messages through microUSB USART1 channel - displays on TeraTerm at 115200 baud
-	// Function to print messages through USART1
-	// Outputs through microUSB to laptop, 115200 baud
-	// Use for sending debug messages to terminal
-	// Set up in the console tab on bottom, and then on the bottom right of screen click the icon to the left of the minus sign (white box with blue on top)
-	// Then, do command shell console, and set Serial with 115200 baud.
+	/*
+	 * Print message through USART1 channel
+	 * Viewable in the in-built CubeIDE terminal
+	 *
+	 * Shamelessly stolen from the Formula Hybrid team... who probably stole it from someone else.
+	 */
+
   static char buffer[256];
   va_list args;
   va_start(args, fmt);
@@ -108,6 +113,18 @@ static void print(const char *fmt, ...) {
   HAL_UART_Transmit(&huart1, (uint8_t *)buffer, len, -1);
   return;
 }
+
+static void uart_send(char *buffer){
+	return;
+}
+
+static void uart_receive(char *buffer){
+	return;
+}
+
+/*
+ * Force Sensor
+ */
 
 static int Get_ADC(){
 	//TODO: Add Calibration for Max / Min
@@ -126,25 +143,55 @@ static int Get_ADC(){
 }
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
+	// TODO: figure out what the hell this does. This was all ripped from deepblueembedded which is probably AI generated.
 	return; // ADC Callback for Later Use??
 }
 
+
+/*
+ * Inertial Measurement Unit - BNO055
+ *
+ * BNO055 Notes
+ * eul_x: 0->360
+ * eul_y: -90->90
+ * eul_z: -180->180
+ * lin_x: Z-axis
+ * lin_y: X-axis
+ * lin_z: Y-axis
+ *
+ * Send Message:
+ * Bytes: Start Byte, Read, Reg addr, Length
+ *
+ * Receive Message:
+ * Bytes: ResponseByte, length, Data 1, ..., Data N - (Data 1 at Byte 3, Data N at Byte N+2)
+ * REMEMBER: BNO055 is little-endian
+ *
+ * TODO: Clean up code and remove hard-coded test messages
+ */
+
 void bno_enable(){
-	uint8_t test_message[64];
+	/*
+	 * Must be called to enable the BNO055 in NDOF mode
+	 */
+	uint8_t test_message[5];
 	test_message[0] = 170;
 	test_message[1] = 0x00;
 	test_message[2] = 0x3D;
 	test_message[3] = 0x01;
-	test_message[4] = 0x0C; // xxxx1100b for NDOF
-	memcpy(uart2_tx_buffer, test_message, BUFFER_SIZE);
-	HAL_UART_Transmit(&huart2, uart2_tx_buffer, 5, 10);
-	HAL_UART_Receive(&huart2, uart2_rx_buffer, BUFFER_SIZE, 10);
-
+	test_message[4] = 0x0C; // xxxx1100b for NDOF selection mode.
+	memcpy(uart2_tx_buffer, test_message, 5);
+	// Enable BNO055
+	HAL_UART_Transmit(&huart2, uart2_tx_buffer, 5, UART_DELAY);
+	HAL_UART_Receive(&huart2, uart2_rx_buffer, BUFFER_SIZE, UART_DELAY);
+	HAL_UART_Transmit(&huart1, uart2_rx_buffer, BUFFER_SIZE, UART_DELAY);
 	return;
 }
 
 void bno_write_units(){
-	// TODO: Entire Function (not necessary if we are writing 0x00 since that is reset)
+	/*
+	 * Write a message to the BNO055
+	 * TODO: Entire Function (not necessary if we are writing 0x00 since that is reset)
+	 */
 	uint8_t test_message[64];
 	test_message[0] = 170;
 	test_message[1] = 0x00;
@@ -165,7 +212,6 @@ void bno_write_units(){
 uint32_t bno_read(uint8_t address){
 	// Read Time @32 Bytes: ~2.5ms
 	// Return 2 bytes of data
-
 	uint8_t test_message[BUFFER_SIZE];
 	uint16_t combined = 0;
 	test_message[0] = 170; // 0xAA: Start Byte
@@ -198,13 +244,13 @@ uint32_t bno_read(uint8_t address){
 //	 }
 //	 print("\r\n");
 
-	memcpy(uart2_rx_buffer, empty_array, BUFFER_SIZE);
+	memcpy(uart2_rx_buffer, empty_buffer, BUFFER_SIZE);
 	return combined;
 }
 
 int bno_read_to_buffer(uint8_t *buffer, uint8_t address, uint8_t length){
 	// Read Time @32 Bytes: ~2.5ms
-	memcpy(buffer, empty_array, BUFFER_SIZE);
+	memcpy(buffer, empty_buffer, BUFFER_SIZE);
 	uint8_t test_message[BUFFER_SIZE];
 	test_message[0] = 170; // 0xAA: Start Byte
 	test_message[1] = 1; // 0x01: Read
@@ -348,21 +394,44 @@ int main(void)
   uint8_t menu_2[32] = "GPS Transmit";
   uint8_t menu_3[32] = "GPS Receive";
 
+  char *text_menu =
+		  "░████████                         ░██          ░██       ░██ ░██░██        ░██\r\n"
+		  "░██    ░██                        ░██          ░██       ░██    ░██        ░██\r\n"
+		  "░██    ░██  ░██    ░██  ░███████  ░██    ░██   ░██  ░██  ░██ ░██░██  ░████████\r\n"
+		  "░████████   ░██    ░██ ░██    ░██ ░██   ░██    ░██ ░████ ░██ ░██░██ ░██    ░██\r\n";
+  char *text_menu_2 =
+		  "░██     ░██ ░██    ░██ ░██        ░███████     ░██░██ ░██░██ ░██░██ ░██    ░██\r\n"
+		  "░██     ░██ ░██   ░███ ░██    ░██ ░██   ░██    ░████   ░████ ░██░██ ░██   ░███\r\n"
+		  "░█████████   ░█████░██  ░███████  ░██    ░██   ░███     ░███ ░██░██  ░█████░██\r\n";
 
 
-
-  state = demo_adc;
+  state = menu;
   print("Entered Main Loop\r\n");
 
   HAL_Delay(50);
   bno_enable();
+
   while(1){
 	  BSP_LED_Toggle(LED_GREEN);
 	  user_button = BSP_PB_GetState(BUTTON_USER);
 
 	  if (state == menu)
 	  {
+		  // Splash Screen
+		  print(text_menu);
+		  print(text_menu_2);
 
+		  // Menu Options
+		  print("Choose Option:\r\n");
+		  print(
+				  "1. demo_adc\r\n"
+				  "2. demo_bno055\r\n"
+				  "3. demo_fullsystem\r\n"
+				  "4. demo_maxm10s\r\n"
+				  "5. demo_motor\r\n"
+				  "6. demo_lock\r\n"
+				  "7. demo_stx3\r\n"
+				  );
 	  }
 	  else if (state == demo_adc)
 	  {
@@ -580,7 +649,8 @@ void Error_Handler(void)
   __disable_irq();
   while (1)
   {
-	  print("ERROR HANDLER");
+	  print("YOU DIED\n");
+	  print("Press any key to respawn.\n");
   }
   /* USER CODE END Error_Handler_Debug */
 }
