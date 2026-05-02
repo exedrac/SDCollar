@@ -20,6 +20,8 @@
 #include "tim.h"
 #include "gpio.h"
 
+#include "m_gps.h"
+
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -57,6 +59,13 @@ typedef enum{
 	power_peripherals,
 	power_sleep,
 } Microcontroller_State;
+
+struct bno055{
+	int eul_x, eul_y, eul_z;
+	int lin_x, lin_y, lin_z;
+	int mag_x, mag_y, mag_z;
+	int temperature;
+};
 
 
 /*
@@ -367,19 +376,6 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
-  int adc_value;
-  int state;
-
-  int eul_x = 0;
-  int eul_y = 0;
-  int eul_z = 0;
-  int lin_x = 0;
-  int lin_y = 0;
-  int lin_z = 0;
-//  int mag_x = 0;
-//  int mag_y = 0;
-//  int mag_z = 0;
-  int temp = 0;
 
 //  char *text_menu =
 //		  "░████████                         ░██          ░██       ░██ ░██░██        ░██\r\n"
@@ -391,11 +387,12 @@ int main(void)
 //		  "░██     ░██ ░██   ░███ ░██    ░██ ░██   ░██    ░████   ░████ ░██░██ ░██   ░███\r\n"
 //		  "░█████████   ░█████░██  ░███████  ░██    ░██   ░███     ░███ ░██░██  ░█████░██\r\n";
 
+  struct bno055 imu;
+  int adc_value;
+  Microcontroller_State state = demo_maxm10s;
 
-  state = menu;
   print("Entered Main Loop\r\n");
 
-  HAL_Delay(50);
   bno_enable();
 
   while(1){
@@ -424,15 +421,6 @@ int main(void)
 		  adc_value = Get_ADC();
 		  print("Force Sensor: %d\r\n", adc_value);
 		  HAL_Delay(100);
-
-	  	  if (user_button == 1){
-	  		  state = demo_bno055;
-	  		  user_button = 0;
-	  		  BSP_LED_Off(LED_GREEN);
-	  		  BSP_LED_On(LED_BLUE);
-	  		  HAL_Delay(200);
-	  		  BSP_LED_Off(LED_BLUE);
-	  	  }
 	  }
 	  else if (state == demo_bno055)
 	  {
@@ -441,60 +429,54 @@ int main(void)
 		  // Data from BNO055 is represented as int16_t. Must be typecast.
 		  // Things to watch for: Incoming byte order, data size (1 vs. 2 bytes usually)
 		  if (bno_read_to_buffer(storage_buffer, 0x1A, 2) == 1){
-			  eul_x = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
+			  imu.eul_x = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
 		  }
 		  if (bno_read_to_buffer(storage_buffer, 0x1C, 2) == 1){
-			  eul_y = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
+			  imu.eul_y = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
 		  }
 		  if (bno_read_to_buffer(storage_buffer, 0x1E, 2) == 1){
-			  eul_z = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
+			  imu.eul_z = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
 		  }
 
 		  if (bno_read_to_buffer(storage_buffer, 0x28, 2) == 1){
-			  lin_x = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
+			  imu.lin_x = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
 		  }
 		  if (bno_read_to_buffer(storage_buffer, 0x2A, 2) == 1){
-			  lin_y = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
+			  imu.lin_y = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
 		  }
 		  if (bno_read_to_buffer(storage_buffer, 0x2C, 2) == 1){
-			  lin_z = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
+			  imu.lin_z = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
 		  }
 
 		  if (bno_read_to_buffer(storage_buffer, 0x34, 1) == 1){
-			  temp = (int16_t)(storage_buffer[2]);
+			  imu.temperature = (int16_t)(storage_buffer[2]);
 		  }
 
-//		  if (bno_read_to_buffer(storage_buffer, 0x2A, 2) == 1){
-//			  mag_x = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
-//		  }
-//		  if (bno_read_to_buffer(storage_buffer, 0x28, 2) == 1){
-//			  mag_y = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
-//		  }
-//
-//		  if (bno_read_to_buffer(storage_buffer, 0x34, 1) == 1){
-//			  mag_z = (int16_t)(storage_buffer[2]);
-//		  }
+		  if (bno_read_to_buffer(storage_buffer, 0x2A, 2) == 1){
+			  imu.mag_x = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
+		  }
+		  if (bno_read_to_buffer(storage_buffer, 0x28, 2) == 1){
+			  imu.mag_y = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
+		  }
 
-		  eul_x = eul_x / 16;
-		  eul_y = eul_y / 16;
-		  eul_z = eul_z / 16;
-		  lin_x = lin_x / 1;
-		  lin_y = lin_y / 1;
-		  lin_z = lin_z / 1;
-		  temp = temp * 1;
+		  if (bno_read_to_buffer(storage_buffer, 0x34, 1) == 1){
+			  imu.mag_z = (int16_t)(storage_buffer[2]);
+		  }
+
+		  imu.eul_x /= 16;
+		  imu.eul_y /= 16;
+		  imu.eul_z /= 16;
+		  imu.lin_x /=  1;
+		  imu.lin_y /= 1;
+		  imu.lin_z /= 1;
+		  imu.temperature *= 1;
 
 		  // TODO: Figure out how to print floats.
 		  // print("lX: %.1f, lY: %.1f, lZ: %.1f, eX: %.1f, eY: %.1f, eZ: %.1f, Temp: %.1f\r\n", lin_x, lin_y, lin_z, eul_x, eul_y, eul_z, temp);
-		  print("lX: %d, lY: %d, lZ: %d, eX: %d, eY: %d, eZ: %d, Temp: %d\r\n", lin_y, lin_x, lin_z, eul_x, eul_y, eul_z, temp); // NOTE: LINEAR VALUES XYZ ARE NOT CORRESPONDING TO WHAT IS PRINTED!!!
+		  print("lX: %d, lY: %d, lZ: %d, eX: %d, eY: %d, eZ: %d, Temp: %d\r\n", imu.lin_y, imu.lin_x, imu.lin_z, imu.eul_x, imu.eul_y, imu.eul_z, imu.temperature); // NOTE: LINEAR VALUES XYZ ARE NOT CORRESPONDING TO WHAT IS PRINTED!!!
 
-	  	  if (user_button == 1){
-	  		  state = demo_adc;
-	  		  user_button = 0;
-	  		  BSP_LED_Off(LED_GREEN);
-	  		  BSP_LED_On(LED_BLUE);
-	  		  HAL_Delay(200);
-	  		  BSP_LED_Off(LED_BLUE);
-	  	  }
+	  }
+	  else if (state == demo_maxm10s){
 
 	  }
 	  else{
