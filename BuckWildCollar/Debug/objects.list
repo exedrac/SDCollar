@@ -1,5 +1,4 @@
 "./Core/Src/adc.o"
-"./Core/Src/bno055.o"
 "./Core/Src/gpio.o"
 "./Core/Src/icache.o"
 "./Core/Src/main.o"
@@ -9,6 +8,7 @@
 "./Core/Src/syscalls.o"
 "./Core/Src/sysmem.o"
 "./Core/Src/system_stm32u5xx.o"
+"./Core/Src/tim.o"
 "./Core/Src/usart.o"
 "./Core/Startup/startup_stm32u575zitxq.o"
 "./Drivers/BSP/STM32U5xx_Nucleo/stm32u5xx_nucleo.o"

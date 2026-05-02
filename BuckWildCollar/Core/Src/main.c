@@ -17,17 +17,12 @@
 #include "adc.h"
 #include "icache.h"
 #include "usart.h"
+#include "tim.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
-
-
-
-
-
-// stdlib Includes
 #include <math.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -36,7 +31,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define BUFFER_SIZE 256
+#define BUFFER_SIZE 64
 #define UART_DELAY 10
 
 typedef enum{
@@ -89,8 +84,6 @@ uint8_t reset = 0;
 
 // Prototypes
 static void print(const char *fmt, ...);
-static void uart_send(char *buffer);
-static void uart_receive(char *buffer);
 static int Get_ADC();
 
 // Functions
@@ -114,11 +107,13 @@ static void print(const char *fmt, ...) {
   return;
 }
 
-static void uart_send(char *buffer){
+static void uart_send(UART_HandleTypeDef *huart, uint8_t *buffer){
+	HAL_UART_Transmit_IT(huart, buffer, BUFFER_SIZE);
 	return;
 }
 
-static void uart_receive(char *buffer){
+static void uart_receive(UART_HandleTypeDef *huart, uint8_t *buffer){
+	HAL_UART_Receive_IT(huart, buffer, BUFFER_SIZE);
 	return;
 }
 
@@ -356,6 +351,7 @@ int main(void)
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
   MX_USART3_UART_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
@@ -380,29 +376,20 @@ int main(void)
   int lin_x = 0;
   int lin_y = 0;
   int lin_z = 0;
-  int mag_x = 0;
-  int mag_y = 0;
-  int mag_z = 0;
+//  int mag_x = 0;
+//  int mag_y = 0;
+//  int mag_z = 0;
   int temp = 0;
 
-  int calibration_status = 0;
-
-  int menu_index = 0;
-  int menu_length = 4;
-  uint8_t menu_0[32] = "Force Resistor";
-  uint8_t menu_1[32] = "IMU Sensor";
-  uint8_t menu_2[32] = "GPS Transmit";
-  uint8_t menu_3[32] = "GPS Receive";
-
-  char *text_menu =
-		  "░████████                         ░██          ░██       ░██ ░██░██        ░██\r\n"
-		  "░██    ░██                        ░██          ░██       ░██    ░██        ░██\r\n"
-		  "░██    ░██  ░██    ░██  ░███████  ░██    ░██   ░██  ░██  ░██ ░██░██  ░████████\r\n"
-		  "░████████   ░██    ░██ ░██    ░██ ░██   ░██    ░██ ░████ ░██ ░██░██ ░██    ░██\r\n";
-  char *text_menu_2 =
-		  "░██     ░██ ░██    ░██ ░██        ░███████     ░██░██ ░██░██ ░██░██ ░██    ░██\r\n"
-		  "░██     ░██ ░██   ░███ ░██    ░██ ░██   ░██    ░████   ░████ ░██░██ ░██   ░███\r\n"
-		  "░█████████   ░█████░██  ░███████  ░██    ░██   ░███     ░███ ░██░██  ░█████░██\r\n";
+//  char *text_menu =
+//		  "░████████                         ░██          ░██       ░██ ░██░██        ░██\r\n"
+//		  "░██    ░██                        ░██          ░██       ░██    ░██        ░██\r\n"
+//		  "░██    ░██  ░██    ░██  ░███████  ░██    ░██   ░██  ░██  ░██ ░██░██  ░████████\r\n"
+//		  "░████████   ░██    ░██ ░██    ░██ ░██   ░██    ░██ ░████ ░██ ░██░██ ░██    ░██\r\n";
+//  char *text_menu_2 =
+//		  "░██     ░██ ░██    ░██ ░██        ░███████     ░██░██ ░██░██ ░██░██ ░██    ░██\r\n"
+//		  "░██     ░██ ░██   ░███ ░██    ░██ ░██   ░██    ░████   ░████ ░██░██ ░██   ░███\r\n"
+//		  "░█████████   ░█████░██  ░███████  ░██    ░██   ░███     ░███ ░██░██  ░█████░██\r\n";
 
 
   state = menu;
@@ -418,8 +405,7 @@ int main(void)
 	  if (state == menu)
 	  {
 		  // Splash Screen
-		  print(text_menu);
-		  print(text_menu_2);
+		  print("Buck Wild Collar\r\n");
 
 		  // Menu Options
 		  print("Choose Option:\r\n");
@@ -478,16 +464,16 @@ int main(void)
 			  temp = (int16_t)(storage_buffer[2]);
 		  }
 
-		  if (bno_read_to_buffer(storage_buffer, 0x2A, 2) == 1){
-			  mag_x = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
-		  }
-		  if (bno_read_to_buffer(storage_buffer, 0x28, 2) == 1){
-			  mag_y = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
-		  }
-
-		  if (bno_read_to_buffer(storage_buffer, 0x34, 1) == 1){
-			  mag_z = (int16_t)(storage_buffer[2]);
-		  }
+//		  if (bno_read_to_buffer(storage_buffer, 0x2A, 2) == 1){
+//			  mag_x = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
+//		  }
+//		  if (bno_read_to_buffer(storage_buffer, 0x28, 2) == 1){
+//			  mag_y = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
+//		  }
+//
+//		  if (bno_read_to_buffer(storage_buffer, 0x34, 1) == 1){
+//			  mag_z = (int16_t)(storage_buffer[2]);
+//		  }
 
 		  eul_x = eul_x / 16;
 		  eul_y = eul_y / 16;
@@ -516,7 +502,6 @@ int main(void)
 		  print("Error: Please Restart Demo.");
 	  }
   }
-  }
 
 
 
@@ -541,6 +526,7 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
   /* USER CODE END 3 */
+}
 
 /**
   * @brief System Clock Configuration

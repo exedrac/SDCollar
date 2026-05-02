@@ -58,6 +58,7 @@ void SysTick_Handler(void);
 void EXTI13_IRQHandler(void);
 void ADC1_IRQHandler(void);
 void USART1_IRQHandler(void);
+void USART2_IRQHandler(void);
 void USART3_IRQHandler(void);
 void LPUART1_IRQHandler(void);
 void TIM17_IRQHandler(void);
