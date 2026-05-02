@@ -1,6 +1,0 @@
-../Core/Src/m_gps.c:51:6:gps_acquire	184	static
-../Core/Src/m_gps.c:71:6:HAL_UART_RxCpltCallback	24	static
-../Core/Src/m_gps.c:109:13:queue_push	24	static
-../Core/Src/m_gps.c:120:13:queue_pop	16	static
-../Core/Src/m_gps.c:130:15:nmea_to_deg	32	static
-../Core/Src/m_gps.c:140:14:parse_nmea	104	static
