@@ -109,12 +109,16 @@ struct bno055{
  * TODO: Balance buffer size with useful messages. We have 2MB flash total =~ 1.02MB
  */
 
+char user_command[BUFFER_SIZE] = "menu";
 
 uint8_t storage_buffer[BUFFER_SIZE] = "Initial Storage Buffer.";
 const uint8_t empty_buffer[BUFFER_SIZE] = ""; // Used to clear buffers with memcpy. Also is an "impostor buffer".
+uint8_t return_buffer[1] = "\0";
+uint8_t return_buffer_flag = 0;
+
 
 uint8_t uart1_tx_buffer[BUFFER_SIZE] = "Initial TX1 String\r\n";
-uint8_t uart1_rx_buffer[BUFFER_SIZE] = "Initial RX1 String\r\n";
+uint8_t uart1_rx_buffer[BUFFER_SIZE] = "menu"; // "Initial RX1 String\r\n";
 uint8_t uart2_tx_buffer[BUFFER_SIZE] = "Initial TX2 String\r\n";
 uint8_t uart2_rx_buffer[BUFFER_SIZE] = "Initial RX2 String\r\n";
 uint8_t uart3_tx_buffer[BUFFER_SIZE] = "Initial TX3 String\r\n";
@@ -422,12 +426,39 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
      }
  }
 
-
  void check_for_return(){
-
+	 /*
+	  * Allow code to run until enter is returned.
+	  *
+	  * CAUTION: The USART1 RX port will be in use. This works by both generating and waiting for the return signal to be an "all-in-one" command.
+	  * Note: The huart1 rx port may cause issues by creating interrupts where you don't want them to be.
+	  */
+	 if (return_buffer[0] == '\r'){
+		 return_buffer[0] = '\0'; // Reset buffer for next usage.
+		 HAL_UART_AbortReceive(&huart1); // Abort UART receive to clear up the buffer.
+		 strcpy(user_command, "menu");
+		 print("\r\n");
+		 return;
+	 }
+	 HAL_UART_Receive_IT(&huart1, return_buffer, BUFFER_SIZE);
+	 return;
  }
 
-
+ void wait_for_return(){
+	 /*
+	  * Block code until enter is returned.
+	  */
+	 return_buffer[0] = '\0';
+	 while (1){
+		 HAL_UART_Receive(&huart1, return_buffer, 1, 100);
+		 if (return_buffer[0] == 13){
+			 return_buffer[0] = '\0'; // Reset buffer for next usage.
+			 strcpy(user_command, "menu");
+			 print("\r\n");
+			 return;
+		 }
+	 }
+ }
 
 /* USER CODE END Includes */
 
@@ -518,6 +549,31 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
+	const char *commands[] = {
+		"help",
+
+		"active",
+		"menu",
+		"sleep",
+
+		"gps_receive",
+		"gps_transmit",
+		"sense_bno055",
+		"motor_adjust",
+
+		"demo_active",
+		"demo_adc",
+		"demo_bno055",
+		"demo_maxm10s",
+		"demo_maxm10s_parsed",
+		"demo_motor",
+		"demo_lock",
+		"demo_stx3",
+		"demo_system",
+
+		"power_peripherals",
+		"power_sleep"
+	};
 
   const char *text_menu[7] = {
   "░████████                         ░██          ░██       ░██ ░██ ██        ░██\r\n",
@@ -531,7 +587,6 @@ int main(void)
 
   struct bno055 imu;
   int adc_value;
-  Microcontroller_State state = menu;
   bno_enable();
 
   for(int i=0; i< sizeof(text_menu) / sizeof(text_menu[0]); i++)
@@ -540,12 +595,13 @@ int main(void)
   }
 
   while(1){
+
 	  user_button = BSP_PB_GetState(BUTTON_USER);
-	  if (state == menu)
+
+	  if (strcmp(user_command, "menu") == 0)
 	  {
 		  // Menu Options
 		  memcpy(uart1_rx_buffer, empty_buffer, BUFFER_SIZE);
-		  print("Choose Option:\r\n");
 		  print(">> "); // CLI line
 
 		  uint8_t flag_uart_enter = 1;
@@ -559,61 +615,65 @@ int main(void)
 
 			  if (rx_byte[0] != 0)
 			  {
-				  uart1_rx_buffer[i] = rx_byte[0];
-
 				  // Check if the byte we just received is enter to return to menu.
-				  if (uart1_rx_buffer[i] == 13) // ASCII Enter = 13
+				  if (rx_byte[0] == 13) // ASCII Enter = 13
 				  {
 					  flag_uart_enter = 0;
 				  }
-
-				  // Move array index, or return to menu if we reach the max.
-				  if (i < BUFFER_SIZE - 1) // C
-				  {
-					  i++;
-				  }
-				  else
-				  {
-					  flag_uart_enter = 0;
+				  else{
+					  // Copy byte into buffer
+					  // Exit if maximum i value is reached
+					  uart1_rx_buffer[i] = rx_byte[0];
+					  if (i < BUFFER_SIZE - 1) {i++;}
+					  else {flag_uart_enter = 0;}
 				  }
 			  }
 		  }
 		  print("\r\n\r\n");
 
+		  memcpy(user_command, uart1_rx_buffer, BUFFER_SIZE); // Copy uint8_t buffer into char type
 
 	  }
-	  else if (state == help)
+	  else if (strcmp(user_command, "help") == 0)
 	  {
-		  print("Available Commands:");
+		  print("Available Commands:\r\n");
 		  print(
-				  "help",
-				  "active",
-				  "menu",
-				  "sleep",
+				  "active\r\n"
+				  "menu\r\n"
+				  "help\r\n"
+				  "sleep\r\n"
 
 				  "demo_adc\r\n"
 				  "demo_bno055\r\n"
 				  "demo_fullsystem\r\n"
+				  "demo_lock\r\n"
 				  "demo_maxm10s\r\n"
 				  "demo_motor\r\n"
-				  "demo_lock\r\n"
 				  "demo_stx3\r\n"
 
-				  "gps_receive",
-				  "gps_transmit",
-				  "sense_bno055",
-				  "motor_adjust",
-				  "power_peripherals",
-				  "power_sleep"
+				  "gps_receive\r\n"
+				  "gps_transmit\r\n"
+				  "motor_adjust\r\n"
+				  "power_peripherals\r\n"
+				  "power_sleep\r\n"
+				  "sense_bno055\r\n"
 				  );
+
+		wait_for_return();
+
 	  }
-	  else if (state == demo_adc)
+	  else if (strcmp(user_command, "text") == 0){
+
+	  }
+	  else if (strcmp(user_command, "demo_adc") == 0)
 	  {
 		  adc_value = Get_ADC();
 		  print("Force Sensor: %d\r\n\r\n", adc_value);
 		  HAL_Delay(100);
+
+		  check_for_return();
 	  }
-	  else if (state == demo_bno055)
+	  else if (strcmp(user_command, "demo_bno055") == 0)
 	  {
 		  bno_enable();
 
@@ -666,8 +726,9 @@ int main(void)
 		  // print("lX: %.1f, lY: %.1f, lZ: %.1f, eX: %.1f, eY: %.1f, eZ: %.1f, Temp: %.1f\r\n", lin_x, lin_y, lin_z, eul_x, eul_y, eul_z, temp);
 		  print("lX: %d, lY: %d, lZ: %d, eX: %d, eY: %d, eZ: %d, Temp: %d\r\n", imu.lin_y, imu.lin_x, imu.lin_z, imu.eul_x, imu.eul_y, imu.eul_z, imu.temperature); // NOTE: LINEAR VALUES XYZ ARE NOT CORRESPONDING TO WHAT IS PRINTED!!!
 
+		  check_for_return();
 	  }
-	  else if (state == demo_maxm10s){
+	  else if (strcmp(user_command, "demo_maxm10s") == 0){
     	  HAL_UART_Receive_IT(&hlpuart1, &rx_byte, 1);
 	      char line[RX_LINE_MAX];
 
@@ -692,10 +753,17 @@ int main(void)
 	      }
 
 	      HAL_Delay(1);
+
+	      check_for_return();
+	  }
+	  else if (strcmp(user_command, "text") == 0){
+
 	  }
 	  else{
+		  // Set user command to menu.
+		  strcpy(user_command, "menu");
 		  BSP_LED_Toggle(LED_RED);
-		  print("Error: Please Restart Demo.");
+		  print("Error: Unknown Command.\r\n");
 	  }
   }
 
