@@ -68,6 +68,8 @@ static gps_data_t gps;
 // END GPS
 
 typedef enum{
+	help,
+
 	active,
 	menu,
 	sleep,
@@ -97,6 +99,9 @@ struct bno055{
 	int mag_x, mag_y, mag_z;
 	int temperature;
 };
+
+
+// TODO: Make the command into a struct: https://www.reddit.com/r/embedded/comments/s71hd7/uart_command_processor_best_approach/
 
 
 /*
@@ -150,16 +155,6 @@ static void print(const char *fmt, ...) {
   int len = strlen(buffer);
   HAL_UART_Transmit(&huart1, (uint8_t *)buffer, len, -1);
   return;
-}
-
-static void uart_send(UART_HandleTypeDef *huart, uint8_t *buffer){
-	HAL_UART_Transmit_IT(huart, buffer, BUFFER_SIZE);
-	return;
-}
-
-static void uart_receive(UART_HandleTypeDef *huart, uint8_t *buffer){
-	HAL_UART_Receive_IT(huart, buffer, BUFFER_SIZE);
-	return;
 }
 
 /*
@@ -428,6 +423,11 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
  }
 
 
+ void check_for_return(){
+
+ }
+
+
 
 /* USER CODE END Includes */
 
@@ -519,49 +519,98 @@ int main(void)
   /* USER CODE BEGIN WHILE */
 
 
-//  char *text_menu =
-//		  "░████████                         ░██          ░██       ░██ ░██░██        ░██\r\n"
-//		  "░██    ░██                        ░██          ░██       ░██    ░██        ░██\r\n"
-//		  "░██    ░██  ░██    ░██  ░███████  ░██    ░██   ░██  ░██  ░██ ░██░██  ░████████\r\n"
-//		  "░████████   ░██    ░██ ░██    ░██ ░██   ░██    ░██ ░████ ░██ ░██░██ ░██    ░██\r\n";
-//  char *text_menu_2 =
-//		  "░██     ░██ ░██    ░██ ░██        ░███████     ░██░██ ░██░██ ░██░██ ░██    ░██\r\n"
-//		  "░██     ░██ ░██   ░███ ░██    ░██ ░██   ░██    ░████   ░████ ░██░██ ░██   ░███\r\n"
-//		  "░█████████   ░█████░██  ░███████  ░██    ░██   ░███     ░███ ░██░██  ░█████░██\r\n";
+  const char *text_menu[7] = {
+  "░████████                         ░██          ░██       ░██ ░██ ██        ░██\r\n",
+  "░██    ░██                        ░██          ░██       ░██     ██        ░██\r\n",
+  "░██    ░██  ░██    ░██  ░███████  ░██    ░██   ░██  ░██  ░██ ░██ ██  ░████████\r\n",
+  "░████████   ░██    ░██ ░██    ░██ ░██   ░██    ░██ ░████ ░██ ░██ ██ ░██    ░██\r\n",
+  "░██     ░██ ░██    ░██ ░██        ░███████     ░██░██ ░██░██ ░██ ██ ░██    ░██\r\n",
+  "░██     ░██ ░██   ░███ ░██    ░██ ░██   ░██    ░████   ░████ ░██ ██ ░██   ░███\r\n",
+  "░█████████   ░█████░██  ░███████  ░██    ░██   ░███     ░███ ░██ ██  ░█████░██\r\n"
+  };
 
   struct bno055 imu;
   int adc_value;
-  Microcontroller_State state = demo_maxm10s;
-
-  print("Entered Main Loop\r\n");
-
+  Microcontroller_State state = menu;
   bno_enable();
 
-  while(1){
-	  BSP_LED_Toggle(LED_GREEN);
-	  user_button = BSP_PB_GetState(BUTTON_USER);
+  for(int i=0; i< sizeof(text_menu) / sizeof(text_menu[0]); i++)
+  {
+	  print(text_menu[i]);
+  }
 
+  while(1){
+	  user_button = BSP_PB_GetState(BUTTON_USER);
 	  if (state == menu)
 	  {
-		  // Splash Screen
-		  print("Buck Wild Collar\r\n");
-
 		  // Menu Options
+		  memcpy(uart1_rx_buffer, empty_buffer, BUFFER_SIZE);
 		  print("Choose Option:\r\n");
+		  print(">> "); // CLI line
+
+		  uint8_t flag_uart_enter = 1;
+		  uint8_t i = 0;
+		  uint8_t rx_byte[1];
+
+		  while(flag_uart_enter){
+			  rx_byte[0] = 0;
+			  HAL_UART_Receive(&huart1, rx_byte, 1, 10);
+			  HAL_UART_Transmit_IT(&huart1, rx_byte, 1);
+
+			  if (rx_byte[0] != 0)
+			  {
+				  uart1_rx_buffer[i] = rx_byte[0];
+
+				  // Check if the byte we just received is enter to return to menu.
+				  if (uart1_rx_buffer[i] == 13) // ASCII Enter = 13
+				  {
+					  flag_uart_enter = 0;
+				  }
+
+				  // Move array index, or return to menu if we reach the max.
+				  if (i < BUFFER_SIZE - 1) // C
+				  {
+					  i++;
+				  }
+				  else
+				  {
+					  flag_uart_enter = 0;
+				  }
+			  }
+		  }
+		  print("\r\n\r\n");
+
+
+	  }
+	  else if (state == help)
+	  {
+		  print("Available Commands:");
 		  print(
-				  "1. demo_adc\r\n"
-				  "2. demo_bno055\r\n"
-				  "3. demo_fullsystem\r\n"
-				  "4. demo_maxm10s\r\n"
-				  "5. demo_motor\r\n"
-				  "6. demo_lock\r\n"
-				  "7. demo_stx3\r\n"
+				  "help",
+				  "active",
+				  "menu",
+				  "sleep",
+
+				  "demo_adc\r\n"
+				  "demo_bno055\r\n"
+				  "demo_fullsystem\r\n"
+				  "demo_maxm10s\r\n"
+				  "demo_motor\r\n"
+				  "demo_lock\r\n"
+				  "demo_stx3\r\n"
+
+				  "gps_receive",
+				  "gps_transmit",
+				  "sense_bno055",
+				  "motor_adjust",
+				  "power_peripherals",
+				  "power_sleep"
 				  );
 	  }
 	  else if (state == demo_adc)
 	  {
 		  adc_value = Get_ADC();
-		  print("Force Sensor: %d\r\n", adc_value);
+		  print("Force Sensor: %d\r\n\r\n", adc_value);
 		  HAL_Delay(100);
 	  }
 	  else if (state == demo_bno055)
@@ -618,12 +667,6 @@ int main(void)
 		  print("lX: %d, lY: %d, lZ: %d, eX: %d, eY: %d, eZ: %d, Temp: %d\r\n", imu.lin_y, imu.lin_x, imu.lin_z, imu.eul_x, imu.eul_y, imu.eul_z, imu.temperature); // NOTE: LINEAR VALUES XYZ ARE NOT CORRESPONDING TO WHAT IS PRINTED!!!
 
 	  }
-//	  else if (state == demo_maxm10s){
-//		  memcpy(storage_buffer, empty_buffer, BUFFER_SIZE);
-//		  HAL_UART_Receive(&hlpuart1, storage_buffer, BUFFER_SIZE, UART_GPS_DELAY);
-//		  HAL_UART_Transmit(&huart1, storage_buffer, BUFFER_SIZE, UART_DELAY);
-//		  print("\r\n");
-//	  }
 	  else if (state == demo_maxm10s){
     	  HAL_UART_Receive_IT(&hlpuart1, &rx_byte, 1);
 	      char line[RX_LINE_MAX];
