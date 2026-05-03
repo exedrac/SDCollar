@@ -68,30 +68,14 @@ static gps_data_t gps;
 // END GPS
 
 typedef enum{
-	help,
-
-	active,
-	menu,
-	sleep,
-
+	init,
 	gps_receive,
+	imu_receive,
+	force_receive,
+	motor_control,
 	gps_transmit,
-	sense_bno055,
-	motor_adjust,
-
-	demo_active,
-	demo_adc,
-	demo_bno055,
-	demo_maxm10s,
-	demo_maxm10s_parsed,
-	demo_motor,
-	demo_lock,
-	demo_stx3,
-	demo_system,
-
-	power_peripherals,
-	power_sleep,
-} Microcontroller_State;
+	sleep
+} active_state;
 
 struct bno055{
 	int eul_x, eul_y, eul_z;
@@ -437,7 +421,6 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 		 return_buffer[0] = '\0'; // Reset buffer for next usage.
 		 HAL_UART_AbortReceive(&huart1); // Abort UART receive to clear up the buffer.
 		 strcpy(user_command, "menu");
-		 print("\r\n");
 		 return;
 	 }
 	 HAL_UART_Receive_IT(&huart1, return_buffer, BUFFER_SIZE);
@@ -446,7 +429,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 
  void wait_for_return(){
 	 /*
-	  * Block code until enter is returned.
+	  * Pause until enter is returned.
 	  */
 	 return_buffer[0] = '\0';
 	 while (1){
@@ -454,7 +437,6 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 		 if (return_buffer[0] == 13){
 			 return_buffer[0] = '\0'; // Reset buffer for next usage.
 			 strcpy(user_command, "menu");
-			 print("\r\n");
 			 return;
 		 }
 	 }
@@ -550,10 +532,10 @@ int main(void)
   /* USER CODE BEGIN WHILE */
 
 	const char *commands[] = {
+		"menu",
 		"help",
 
 		"active",
-		"menu",
 		"sleep",
 
 		"gps_receive",
@@ -587,6 +569,7 @@ int main(void)
 
   struct bno055 imu;
   int adc_value;
+  int state_active = 0;
   bno_enable();
 
   for(int i=0; i< sizeof(text_menu) / sizeof(text_menu[0]); i++)
@@ -602,6 +585,7 @@ int main(void)
 	  {
 		  // Menu Options
 		  memcpy(uart1_rx_buffer, empty_buffer, BUFFER_SIZE);
+		  print("\r\n");
 		  print(">> "); // CLI line
 
 		  uint8_t flag_uart_enter = 1;
@@ -629,10 +613,8 @@ int main(void)
 				  }
 			  }
 		  }
-		  print("\r\n\r\n");
-
 		  memcpy(user_command, uart1_rx_buffer, BUFFER_SIZE); // Copy uint8_t buffer into char type
-
+		  print("\r\n");
 	  }
 	  else if (strcmp(user_command, "help") == 0)
 	  {
@@ -662,13 +644,42 @@ int main(void)
 		wait_for_return();
 
 	  }
-	  else if (strcmp(user_command, "text") == 0){
+	  else if (strcmp(user_command, "active") == 0){
+		  /*
+		   * Activate main code
+		   * State machine inside a state machine
+		   * Only a reset will exit this mode.
+		   */
+
+		  if (state_active == init){
+
+		  }
+		  else if(state_active == gps_receive){
+
+		  }
+		  else if(state_active == imu_receive){
+
+		  }
+		  else if(state_active == force_receive){
+
+		  }
+		  else if(state_active == motor_control){
+
+		  }
+		  else if (state_active == gps_transmit){
+
+		  }
+		  else if (state_active == sleep){
+
+		  }
 
 	  }
+
+
 	  else if (strcmp(user_command, "demo_adc") == 0)
 	  {
 		  adc_value = Get_ADC();
-		  print("Force Sensor: %d\r\n\r\n", adc_value);
+		  print("Force Sensor: %d\r\n", adc_value);
 		  HAL_Delay(100);
 
 		  check_for_return();
@@ -765,6 +776,8 @@ int main(void)
 		  BSP_LED_Toggle(LED_RED);
 		  print("Error: Unknown Command.\r\n");
 	  }
+
+	  // Final Modifications
   }
 
 
