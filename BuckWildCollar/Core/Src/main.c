@@ -37,10 +37,9 @@
 #define UART_DELAY 10
 #define UART_GPS_DELAY 1000
 
-// START GPS
-
 #define RX_LINE_MAX 128
 #define RX_QUEUE_LINES 16
+#define MIN_GPS_SIGNALS 3
 
 static uint8_t rx_byte;
 
@@ -84,13 +83,8 @@ struct bno055{
 	int temperature;
 };
 
-
-// TODO: Make the command into a struct: https://www.reddit.com/r/embedded/comments/s71hd7/uart_command_processor_best_approach/
-
-
 /*
  * UART Buffers (The Flash Devourers!)
- * TODO: Balance buffer size with useful messages. We have 2MB flash total =~ 1.02MB
  */
 
 char user_command[BUFFER_SIZE] = "menu";
@@ -150,7 +144,7 @@ static void print(const char *fmt, ...) {
  */
 
 static int Get_ADC(){
-	//TODO: Add Calibration for Max / Min
+	//TODO: Low Add Calibration for Max / Min
 	// Get ADC value and put into global variable force_resistor
 
 	int adc_value;
@@ -166,8 +160,7 @@ static int Get_ADC(){
 }
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
-	// TODO: figure out what the hell this does. This was all ripped from deepblueembedded which is probably AI generated.
-	return; // ADC Callback for Later Use??
+	return; // ADC callback for later usage
 }
 
 
@@ -190,6 +183,7 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
  * REMEMBER: BNO055 is little-endian
  *
  * TODO: Clean up code and remove hard-coded test messages
+ * TODO: Make the bno055 imu_read into a function
  */
 
 void bno_enable(){
@@ -214,6 +208,7 @@ void bno_write_units(){
 	/*
 	 * Write a message to the BNO055
 	 * TODO: Entire Function (not necessary if we are writing 0x00 since that is reset)
+	 * We should be able to initialize the test_message in one line at least
 	 */
 	uint8_t test_message[BUFFER_SIZE];
 	test_message[0] = 170;
@@ -569,8 +564,7 @@ int main(void)
 
   struct bno055 imu;
   int adc_value;
-  int state_active = 0;
-  bno_enable();
+  active_state state = 0;
 
   for(int i=0; i< sizeof(text_menu) / sizeof(text_menu[0]); i++)
   {
@@ -651,25 +645,43 @@ int main(void)
 		   * Only a reset will exit this mode.
 		   */
 
-		  if (state_active == init){
+		  if (state == init){
 
 		  }
-		  else if(state_active == gps_receive){
+		  // TODO: Verify this code
+		  else if(state == gps_receive){
+			  while(gps.hdop < 5){
+		    	  HAL_UART_Receive_IT(&hlpuart1, &rx_byte, 1);
+			      char line[RX_LINE_MAX];
+			      while (queue_pop(line))
+			      {
+			          parse_nmea(line);
+			          char out[128];
+			          int lat_i = (int)(gps.lat * 1000000);
+			          int lon_i = (int)(gps.lon * 1000000);
+			          int hdop_i = (int)(gps.hdop * 100);
+			          int len = snprintf(out, sizeof(out),
+			              "UTC:%s LATi:%d LONi:%d SAT:%d HDOPi:%d VALID:%d\r\n",
+			              gps.utc, lat_i, lon_i, gps.sats, hdop_i, gps.valid);
+			          HAL_UART_Transmit(&huart1, (uint8_t*)out, len, 100);
+			      }
+			      HAL_Delay(1);
+			  }
+		  }
+		  else if(state == imu_receive){
+
 
 		  }
-		  else if(state_active == imu_receive){
+		  else if(state == force_receive){
 
 		  }
-		  else if(state_active == force_receive){
+		  else if(state == motor_control){
 
 		  }
-		  else if(state_active == motor_control){
+		  else if (state == gps_transmit){
 
 		  }
-		  else if (state_active == gps_transmit){
-
-		  }
-		  else if (state_active == sleep){
+		  else if (state == sleep){
 
 		  }
 
@@ -687,9 +699,9 @@ int main(void)
 	  else if (strcmp(user_command, "demo_bno055") == 0)
 	  {
 		  bno_enable();
-
 		  // Data from BNO055 is represented as int16_t. Must be typecast.
 		  // Things to watch for: Incoming byte order, data size (1 vs. 2 bytes usually)
+
 		  if (bno_read_to_buffer(storage_buffer, 0x1A, 2) == 1){
 			  imu.eul_x = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
 		  }
@@ -733,9 +745,7 @@ int main(void)
 		  imu.lin_z /= 1;
 		  imu.temperature *= 1;
 
-		  // TODO: Figure out how to print floats.
-		  // print("lX: %.1f, lY: %.1f, lZ: %.1f, eX: %.1f, eY: %.1f, eZ: %.1f, Temp: %.1f\r\n", lin_x, lin_y, lin_z, eul_x, eul_y, eul_z, temp);
-		  print("lX: %d, lY: %d, lZ: %d, eX: %d, eY: %d, eZ: %d, Temp: %d\r\n", imu.lin_y, imu.lin_x, imu.lin_z, imu.eul_x, imu.eul_y, imu.eul_z, imu.temperature); // NOTE: LINEAR VALUES XYZ ARE NOT CORRESPONDING TO WHAT IS PRINTED!!!
+		  print("lX: %d, lY: %d, lZ: %d, eX: %d, eY: %d, eZ: %d, Temp: %d\r\n", imu.lin_y, imu.lin_x, imu.lin_z, imu.eul_x, imu.eul_y, imu.eul_z, imu.temperature);
 
 		  check_for_return();
 	  }
