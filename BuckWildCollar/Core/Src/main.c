@@ -216,7 +216,7 @@ void bno_enable(){
 	// Enable BNO055
 	HAL_UART_Transmit(&huart2, uart2_tx_buffer, 5, UART_DELAY);
 	HAL_UART_Receive(&huart2, uart2_rx_buffer, BUFFER_SIZE, UART_DELAY);
-	HAL_UART_Transmit(&huart1, uart2_rx_buffer, BUFFER_SIZE, UART_DELAY);
+	// HAL_UART_Transmit(&huart1, uart2_rx_buffer, BUFFER_SIZE, UART_DELAY);
 	return;
 }
 
@@ -665,8 +665,10 @@ int main(void)
 				  "demo_motorlock\r\n"
 
 				  "gps_receive\r\n"
-				  //"power_peripherals\r\n"
-				  //"power_sleep\r\n"
+				  "power_peripherals\r\n"
+				  "power_normal\r\n"
+				  "contract\r\n"
+				  "expand\r\n"
 				  );
 
 		wait_until_return();
@@ -890,6 +892,7 @@ int main(void)
 
 	  }
 	  else if (strcmp(user_command, "demo_motor") == 0){
+		  Lock_SetStatus(1);
 		  Motor_SetDirection(MOTOR_CW);
 		  Motor_SetSpeed(0.5);
 		  HAL_Delay(2000);
@@ -930,21 +933,61 @@ int main(void)
 		  Lock_SetStatus(1);
 		  HAL_Delay(1000);
 		  Lock_SetStatus(0);
-		  HAL_Delay(10000);
+		  HAL_Delay(1000);
 
 		  if (check_for_return() == 1){
 			  Motor_SetSpeed(0);
 			  Lock_SetStatus(0);
 		  }
 	  }
-	  else if (strcmp(user_command, "test_mode") == 0){
+	  else if (strcmp(user_command, "power_peripherals") == 0){
 		  Lock_SetStatus(1);
 		  Motor_SetSpeed(1);
 		  Motor_SetDirection(MOTOR_CCW);
-		  HAL_Delay(2000);
+		  HAL_Delay(10);
+		  if (check_for_return() == 1){
+			  Motor_SetSpeed(0);
+			  Lock_SetStatus(0);
+		  }
+	  }
+	  else if (strcmp(user_command, "power_normal") == 0){
+		  wait_until_return();
+	  }
+	  else if (strcmp(user_command, "test_mode") == 0){
+	  }
+	  else if (strcmp(user_command, "contract") == 0){
+		  Motor_SetDirection(MOTOR_CCW);
+		  Motor_SetSpeed(1);
+		  Lock_SetStatus(1);
+
+		  HAL_Delay(1000);
+		  Motor_SetDirection(MOTOR_CCW);
 		  Motor_SetSpeed(0);
 		  Lock_SetStatus(0);
-		  HAL_Delay(2000);
+
+		  HAL_Delay(3000);
+
+		  if (check_for_return() == 1){
+			  Motor_SetSpeed(0);
+			  Lock_SetStatus(0);
+		  }
+	  }
+	  else if (strcmp(user_command, "expand") == 0){
+		  Motor_SetDirection(MOTOR_CW);
+		  Motor_SetSpeed(1);
+		  Lock_SetStatus(1);
+
+		  HAL_Delay(1000);
+		  Motor_SetDirection(MOTOR_CW);
+		  Motor_SetSpeed(0);
+		  Lock_SetStatus(0);
+
+		  HAL_Delay(3000);
+
+		  if (check_for_return() == 1){
+			  Motor_SetSpeed(0);
+			  Lock_SetStatus(0);
+		  }
 	  }
 	  else{
 		  // Set user command to menu.
