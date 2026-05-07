@@ -13,8 +13,8 @@
 ../Core/Src/main.c:379:14:parse_nmea	20
 ../Core/Src/main.c:419:6:check_for_return	2
 ../Core/Src/main.c:445:7:wait_until_return	2
-../Core/Src/main.c:500:5:main	40
-../Core/Src/main.c:923:6:SystemClock_Config	4
-../Core/Src/main.c:970:13:SystemPower_Config	2
-../Core/Src/main.c:1001:6:HAL_TIM_PeriodElapsedCallback	2
-../Core/Src/main.c:1019:6:Error_Handler	1
+../Core/Src/main.c:500:5:main	42
+../Core/Src/main.c:930:6:SystemClock_Config	4
+../Core/Src/main.c:977:13:SystemPower_Config	2
+../Core/Src/main.c:1008:6:HAL_TIM_PeriodElapsedCallback	2
+../Core/Src/main.c:1026:6:Error_Handler	1

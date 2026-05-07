@@ -649,7 +649,7 @@ int main(void)
 				  "help\r\n"
 				  "sleep\r\n"
 
-				  //"demo_adc\r\n"
+				  "demo_adc\r\n"
 				  //"demo_bno055\r\n"
 				  //"demo_fullsystem\r\n"
 				  "demo_lock\r\n"
@@ -829,16 +829,10 @@ int main(void)
 		          int lat_i = (int)(gps.lat * 1000000);
 		          int lon_i = (int)(gps.lon * 1000000);
 		          int hdop_i = (int)(gps.hdop * 100);
-		          int len = snprintf(out, sizeof(out), "5, %d, 13, 0, %s, %s, %d, %d, %d, %d\r\n", msg_num, gps.dmy, gps.utc, hdop_i, adc_value, lon_i, lat_i);
+		          int len = snprintf(out, sizeof(out), "5,%d,13,0,%s,%s,%d,%d,%d,%d\r\n", msg_num, gps.dmy, gps.utc, hdop_i, adc_value, lon_i, lat_i);
 		          HAL_UART_Transmit(&huart1, (uint8_t*)out, len, 100);
-
 				  msg_num++;
 		      }
-		      HAL_Delay(1);
-
-			  // Index
-
-		      check_for_return(); // TODO: Is this necessary?
 		  }
 
 	  }
@@ -856,6 +850,11 @@ int main(void)
 
 		  Motor_SetSpeed(0);
 		  HAL_Delay(200);
+
+		  if (check_for_return() == 1){
+			  Motor_SetSpeed(0);
+			  Lock_SetStatus(0);
+		  }
 	  }
 	  else if (strcmp(user_command, "demo_motorlock") == 0){
 		  Motor_SetDirection(MOTOR_CCW);
@@ -875,7 +874,15 @@ int main(void)
 		  }
 	  }
 	  else if (strcmp(user_command, "demo_lock") == 0){
+		  Lock_SetStatus(1);
+		  HAL_Delay(1000);
+		  Lock_SetStatus(0);
+		  HAL_Delay(10000);
 
+		  if (check_for_return() == 1){
+			  Motor_SetSpeed(0);
+			  Lock_SetStatus(0);
+		  }
 	  }
 	  else if (strcmp(user_command, "test_mode") == 0){
 		  HAL_UART_Receive(&hlpuart1, lpuart1_rx_buffer, BUFFER_SIZE, 100);
