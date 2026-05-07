@@ -17,6 +17,7 @@
 #include "adc.h"
 #include "icache.h"
 #include "usart.h"
+#include "tim.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
@@ -30,45 +31,72 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define BUFFER_SIZE 64
+#include <m_motor.h>
+
+#define BUFFER_SIZE 128
 #define UART_DELAY 10
+#define UART_GPS_DELAY 1000
+
+#define RX_LINE_MAX 128
+#define RX_QUEUE_LINES 16
+#define MIN_GPS_SIGNALS 3
+
+static uint8_t rx_byte;
+
+static char build_line[RX_LINE_MAX];
+static uint16_t build_idx = 0;
+
+static char line_q[RX_QUEUE_LINES][RX_LINE_MAX];
+static volatile uint8_t q_head = 0, q_tail = 0;
+
+static volatile uint32_t lines_ok = 0;
+static volatile uint32_t lines_drop = 0;
+
+
+typedef struct {
+    char utc[16];
+    float lat;
+    float lon;
+    int sats;
+    float hdop;
+    int valid;
+} gps_data_t;
+
+static gps_data_t gps;
+
+// END GPS
 
 typedef enum{
-	active,
-	menu,
-	sleep,
-
+	init,
 	gps_receive,
+	imu_receive,
+	force_receive,
+	motor_control,
 	gps_transmit,
-	sense_bno055,
-	motor_adjust,
+	sleep
+} active_state;
 
-	demo_active,
-	demo_adc,
-	demo_bno055,
-	demo_maxm10s,
-	demo_maxm10s_parsed,
-	demo_motor,
-	demo_lock,
-	demo_stx3,
-	demo_system,
-
-	power_peripherals,
-	power_sleep,
-} Microcontroller_State;
-
+struct bno055{
+	int eul_x, eul_y, eul_z;
+	int lin_x, lin_y, lin_z;
+	int mag_x, mag_y, mag_z;
+	int temperature;
+};
 
 /*
  * UART Buffers (The Flash Devourers!)
- * TODO: Balance buffer size with useful messages. We have 2MB flash total =~ 1.02MB
  */
 
+char user_command[BUFFER_SIZE] = "menu";
 
 uint8_t storage_buffer[BUFFER_SIZE] = "Initial Storage Buffer.";
 const uint8_t empty_buffer[BUFFER_SIZE] = ""; // Used to clear buffers with memcpy. Also is an "impostor buffer".
+uint8_t return_buffer[1] = "\0";
+uint8_t return_buffer_flag = 0;
+
 
 uint8_t uart1_tx_buffer[BUFFER_SIZE] = "Initial TX1 String\r\n";
-uint8_t uart1_rx_buffer[BUFFER_SIZE] = "Initial RX1 String\r\n";
+uint8_t uart1_rx_buffer[BUFFER_SIZE] = "menu"; // "Initial RX1 String\r\n";
 uint8_t uart2_tx_buffer[BUFFER_SIZE] = "Initial TX2 String\r\n";
 uint8_t uart2_rx_buffer[BUFFER_SIZE] = "Initial RX2 String\r\n";
 uint8_t uart3_tx_buffer[BUFFER_SIZE] = "Initial TX3 String\r\n";
@@ -83,9 +111,12 @@ uint8_t reset = 0;
 
 // Prototypes
 static void print(const char *fmt, ...);
-static void uart_send(char *buffer);
-static void uart_receive(char *buffer);
 static int Get_ADC();
+
+static int queue_push(const char *s);
+static int queue_pop(char *out);
+static void parse_nmea(char *line);
+static float nmea_to_deg(const char *s);
 
 // Functions
 
@@ -108,20 +139,12 @@ static void print(const char *fmt, ...) {
   return;
 }
 
-static void uart_send(char *buffer){
-	return;
-}
-
-static void uart_receive(char *buffer){
-	return;
-}
-
 /*
  * Force Sensor
  */
 
 static int Get_ADC(){
-	//TODO: Add Calibration for Max / Min
+	//TODO: Low Add Calibration for Max / Min
 	// Get ADC value and put into global variable force_resistor
 
 	int adc_value;
@@ -137,8 +160,7 @@ static int Get_ADC(){
 }
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
-	// TODO: figure out what the hell this does. This was all ripped from deepblueembedded which is probably AI generated.
-	return; // ADC Callback for Later Use??
+	return; // ADC callback for later usage
 }
 
 
@@ -161,6 +183,7 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
  * REMEMBER: BNO055 is little-endian
  *
  * TODO: Clean up code and remove hard-coded test messages
+ * TODO: Make the bno055 imu_read into a function
  */
 
 void bno_enable(){
@@ -185,8 +208,9 @@ void bno_write_units(){
 	/*
 	 * Write a message to the BNO055
 	 * TODO: Entire Function (not necessary if we are writing 0x00 since that is reset)
+	 * We should be able to initialize the test_message in one line at least
 	 */
-	uint8_t test_message[64];
+	uint8_t test_message[BUFFER_SIZE];
 	test_message[0] = 170;
 	test_message[1] = 0x00;
 	test_message[2] = 0x3B;
@@ -275,7 +299,146 @@ void print_hex(uint8_t *buffer, uint8_t length){
 }
 
 
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+ {
+   if (huart->Instance == LPUART1)
+   {
+     // Grab received byte and
+     uint8_t b = rx_byte;
 
+     // Build a line until '\n' (NMEA typical end is "\r\n")
+     if (b == '\r' || b == '\n')
+     {
+         if (build_idx > 0)
+         {
+             build_line[build_idx] = '\0';
+
+             if (queue_push(build_line))
+                 lines_ok++;
+             else
+                 lines_drop++;
+
+             build_idx = 0;
+         }
+     }
+     else
+     {
+         if (build_idx < RX_LINE_MAX - 1)
+             build_line[build_idx++] = (char)b;
+         else
+         {
+             build_idx = 0;
+             lines_drop++;
+         }
+     }
+
+     // Re-arm next byte
+     HAL_UART_Receive_IT(&hlpuart1, &rx_byte, 1);
+   }
+ }
+
+ static int queue_push(const char *s)
+ {
+   uint8_t next = (uint8_t)((q_head + 1) % RX_QUEUE_LINES);
+   if (next == q_tail) return 0; // full
+
+   strncpy(line_q[q_head], s, RX_LINE_MAX);
+   line_q[q_head][RX_LINE_MAX - 1] = '\0';
+   q_head = next;
+   return 1;
+ }
+
+ static int queue_pop(char *out)
+ {
+   if (q_tail == q_head) return 0; // empty
+
+   strncpy(out, line_q[q_tail], RX_LINE_MAX);
+   out[RX_LINE_MAX - 1] = '\0';
+   q_tail = (uint8_t)((q_tail + 1) % RX_QUEUE_LINES);
+   return 1;
+ }
+
+ static float nmea_to_deg(const char *s)
+ {
+     if (!s || !*s) return 0.0f;
+
+     float v = (float)atof(s);
+     int deg = (int)(v / 100.0f);
+     float min = v - (deg * 100.0f);
+     return deg + (min / 60.0f);
+ }
+
+ static void parse_nmea(char *line)
+ {
+     char *f[20] = {0};
+     int n = 0;
+
+     char *tok = strtok(line, ",");
+     while (tok && n < 20) {
+         f[n++] = tok;
+         tok = strtok(NULL, ",");
+     }
+
+     if (n == 0) return;
+
+     if (!strncmp(f[0], "$GNRMC", 6) || !strncmp(f[0], "$GPRMC", 6))
+     {
+         if (n > 6) {
+             strncpy(gps.utc, f[1] ? f[1] : "", sizeof(gps.utc)-1);
+             gps.utc[sizeof(gps.utc)-1] = '\0';
+
+             gps.valid = (f[2] && f[2][0] == 'A');
+
+             gps.lat = nmea_to_deg(f[3]);
+             if (f[4] && f[4][0] == 'S') gps.lat = -gps.lat;
+
+             gps.lon = nmea_to_deg(f[5]);
+             if (f[6] && f[6][0] == 'W') gps.lon = -gps.lon;
+         }
+     }
+     else if (!strncmp(f[0], "$GNGGA", 6) || !strncmp(f[0], "$GPGGA", 6))
+     {
+         if (n > 8) {
+             gps.sats = f[7] ? atoi(f[7]) : 0;
+             gps.hdop = f[8] ? (float)atof(f[8]) : 0.0f;
+         }
+     }
+ }
+
+ int check_for_return(){
+	 /*
+	  * Allow code to run until enter is returned.
+	  *
+	  * CAUTION: The USART1 RX port will be in use. This works by both generating and waiting for the return signal to be an "all-in-one" command.
+	  * Note: The huart1 rx port may cause issues by creating interrupts where you don't want them to be.
+	  *
+	  * Returns 0 if no return
+	  * Returns 1 if return is detected (use in if statement to finish any processes before going back to menu)
+	  */
+	 if (return_buffer[0] == '\r'){
+		 return_buffer[0] = '\0'; // Reset buffer for next usage.
+		 HAL_UART_AbortReceive(&huart1); // Abort UART receive to clear up the buffer.
+		 strcpy(user_command, "menu");
+		 return 1;
+	 }
+	 HAL_UART_Receive_IT(&huart1, return_buffer, BUFFER_SIZE);
+	 return 0;
+ }
+
+ void wait_until_return(){
+	 /*
+	  * Pause until enter is returned.
+	  */
+	 return_buffer[0] = '\0';
+	 while (1){
+		 HAL_UART_Receive(&huart1, return_buffer, 1, 100);
+		 if (return_buffer[0] == 13){
+			 return_buffer[0] = '\0'; // Reset buffer for next usage.
+			 strcpy(user_command, "menu");
+			 return;
+		 }
+	 }
+ }
 
 /* USER CODE END Includes */
 
@@ -347,9 +510,10 @@ int main(void)
   MX_ICACHE_Init();
   MX_ADC1_Init();
   MX_LPUART1_UART_Init();
-  MX_USART1_UART_Init();
   MX_USART2_UART_Init();
   MX_USART3_UART_Init();
+  MX_TIM2_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
@@ -365,150 +529,301 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
+	const char *commands[] = {
+		"menu",
+		"help",
+
+		"active",
+		"sleep",
+
+		"gps_receive",
+		"gps_transmit",
+		"sense_bno055",
+		"motor_adjust",
+
+		"demo_active",
+		"demo_adc",
+		"demo_bno055",
+		"demo_maxm10s",
+		"demo_maxm10s_parsed",
+		"demo_motor",
+		"demo_lock",
+		"demo_stx3",
+		"demo_system",
+
+		"power_peripherals",
+		"power_sleep"
+	};
+
+  const char *text_menu[7] = {
+  "░████████                         ░██          ░██       ░██ ░██ ██        ░██\r\n",
+  "░██    ░██                        ░██          ░██       ░██     ██        ░██\r\n",
+  "░██    ░██  ░██    ░██  ░███████  ░██    ░██   ░██  ░██  ░██ ░██ ██  ░████████\r\n",
+  "░████████   ░██    ░██ ░██    ░██ ░██   ░██    ░██ ░████ ░██ ░██ ██ ░██    ░██\r\n",
+  "░██     ░██ ░██    ░██ ░██        ░███████     ░██░██ ░██░██ ░██ ██ ░██    ░██\r\n",
+  "░██     ░██ ░██   ░███ ░██    ░██ ░██   ░██    ░████   ░████ ░██ ██ ░██   ░███\r\n",
+  "░█████████   ░█████░██  ░███████  ░██    ░██   ░███     ░███ ░██ ██  ░█████░██\r\n"
+  };
+
+  print("\r\n");
+  for(int i=0; i< sizeof(text_menu) / sizeof(text_menu[0]); i++)
+  {
+	  print(text_menu[i]);
+  }
+
+  struct bno055 imu;
   int adc_value;
-  int state;
+  active_state state = 0;
 
-  int eul_x = 0;
-  int eul_y = 0;
-  int eul_z = 0;
-  int lin_x = 0;
-  int lin_y = 0;
-  int lin_z = 0;
-  int mag_x = 0;
-  int mag_y = 0;
-  int mag_z = 0;
-  int temp = 0;
-
-  int calibration_status = 0;
-
-  int menu_index = 0;
-  int menu_length = 4;
-  uint8_t menu_0[32] = "Force Resistor";
-  uint8_t menu_1[32] = "IMU Sensor";
-  uint8_t menu_2[32] = "GPS Transmit";
-  uint8_t menu_3[32] = "GPS Receive";
-
-//  char *text_menu =
-//		  "░████████                         ░██          ░██       ░██ ░██░██        ░██\r\n"
-//		  "░██    ░██                        ░██          ░██       ░██    ░██        ░██\r\n"
-//		  "░██    ░██  ░██    ░██  ░███████  ░██    ░██   ░██  ░██  ░██ ░██░██  ░████████\r\n"
-//		  "░████████   ░██    ░██ ░██    ░██ ░██   ░██    ░██ ░████ ░██ ░██░██ ░██    ░██\r\n";
-//  char *text_menu_2 =
-//		  "░██     ░██ ░██    ░██ ░██        ░███████     ░██░██ ░██░██ ░██░██ ░██    ░██\r\n"
-//		  "░██     ░██ ░██   ░███ ░██    ░██ ░██   ░██    ░████   ░████ ░██░██ ░██   ░███\r\n"
-//		  "░█████████   ░█████░██  ░███████  ░██    ░██   ░███     ░███ ░██░██  ░█████░██\r\n";
-
-
-  state = menu;
-  print("Entered Main Loop\r\n");
-
-  HAL_Delay(50);
-  bno_enable();
+  Motor_Initialize();
+  Lock_Initialize();
 
   while(1){
-	  BSP_LED_Toggle(LED_GREEN);
+
 	  user_button = BSP_PB_GetState(BUTTON_USER);
 
-	  if (state == menu)
+	  if (strcmp(user_command, "menu") == 0)
 	  {
-		  // Splash Screen
-		  print("Buck Wild Collar\r\n");
-
 		  // Menu Options
-		  print("Choose Option:\r\n");
-		  print(
-				  "1. demo_adc\r\n"
-				  "2. demo_bno055\r\n"
-				  "3. demo_fullsystem\r\n"
-				  "4. demo_maxm10s\r\n"
-				  "5. demo_motor\r\n"
-				  "6. demo_lock\r\n"
-				  "7. demo_stx3\r\n"
-				  );
+		  memcpy(uart1_rx_buffer, empty_buffer, BUFFER_SIZE);
+		  print("\r\n");
+		  print(">> "); // CLI line
+
+		  uint8_t flag_uart_enter = 1;
+		  uint8_t i = 0;
+		  uint8_t rx_byte[1];
+
+		  while(flag_uart_enter){
+			  rx_byte[0] = 0;
+			  HAL_UART_Receive(&huart1, rx_byte, 1, 10);
+			  HAL_UART_Transmit_IT(&huart1, rx_byte, 1);
+
+			  if (rx_byte[0] != 0)
+			  {
+				  // Check if the byte we just received is enter to return to menu.
+				  if (rx_byte[0] == 13) // ASCII Enter = 13
+				  {
+					  flag_uart_enter = 0;
+				  }
+				  else{
+					  // Copy byte into buffer
+					  // Exit if maximum i value is reached
+					  uart1_rx_buffer[i] = rx_byte[0];
+					  if (i < BUFFER_SIZE - 1) {i++;}
+					  else {flag_uart_enter = 0;}
+				  }
+			  }
+		  }
+		  memcpy(user_command, uart1_rx_buffer, BUFFER_SIZE); // Copy uint8_t buffer into char type
+		  print("\r\n");
 	  }
-	  else if (state == demo_adc)
+	  else if (strcmp(user_command, "help") == 0)
+	  {
+		  print("Available Commands:\r\n");
+		  print(
+				  "active\r\n"
+				  "menu\r\n"
+				  "help\r\n"
+				  "sleep\r\n"
+
+				  //"demo_adc\r\n"
+				  //"demo_bno055\r\n"
+				  //"demo_fullsystem\r\n"
+				  "demo_lock\r\n"
+				  "demo_maxm10s\r\n"
+				  "demo_motor\r\n"
+				  "demo_motorlock\r\n"
+				  //"demo_stx3\r\n"
+
+				  //"gps_receive\r\n"
+				  //"gps_transmit\r\n"
+				  //"motor_adjust\r\n"
+				  //"power_peripherals\r\n"
+				  //"power_sleep\r\n"
+				  //"sense_bno055\r\n"
+				  );
+
+		wait_until_return();
+
+	  }
+	  else if (strcmp(user_command, "active") == 0){
+		  /*
+		   * Activate main code
+		   * State machine inside a state machine
+		   * Only a reset will exit this mode.
+		   */
+
+		  if (state == init){
+
+		  }
+		  // TODO: Verify this code
+		  else if(state == gps_receive){
+			  while(gps.hdop < 5){
+		    	  HAL_UART_Receive_IT(&hlpuart1, &rx_byte, 1);
+			      char line[RX_LINE_MAX];
+			      while (queue_pop(line))
+			      {
+			          parse_nmea(line);
+			          char out[128];
+			          int lat_i = (int)(gps.lat * 1000000);
+			          int lon_i = (int)(gps.lon * 1000000);
+			          int hdop_i = (int)(gps.hdop * 100);
+			          int len = snprintf(out, sizeof(out),
+			              "UTC:%s LATi:%d LONi:%d SAT:%d HDOPi:%d VALID:%d\r\n",
+			              gps.utc, lat_i, lon_i, gps.sats, hdop_i, gps.valid);
+			          HAL_UART_Transmit(&huart1, (uint8_t*)out, len, 100);
+			      }
+			      HAL_Delay(1);
+			  }
+		  }
+		  else if(state == imu_receive){
+
+
+		  }
+		  else if(state == force_receive){
+
+		  }
+		  else if(state == motor_control){
+
+		  }
+		  else if (state == gps_transmit){
+
+		  }
+		  else if (state == sleep){
+
+		  }
+
+	  }
+
+
+	  else if (strcmp(user_command, "demo_adc") == 0)
 	  {
 		  adc_value = Get_ADC();
 		  print("Force Sensor: %d\r\n", adc_value);
 		  HAL_Delay(100);
 
-	  	  if (user_button == 1){
-	  		  state = demo_bno055;
-	  		  user_button = 0;
-	  		  BSP_LED_Off(LED_GREEN);
-	  		  BSP_LED_On(LED_BLUE);
-	  		  HAL_Delay(200);
-	  		  BSP_LED_Off(LED_BLUE);
-	  	  }
+		  check_for_return();
 	  }
-	  else if (state == demo_bno055)
+	  else if (strcmp(user_command, "demo_bno055") == 0)
 	  {
 		  bno_enable();
-
 		  // Data from BNO055 is represented as int16_t. Must be typecast.
 		  // Things to watch for: Incoming byte order, data size (1 vs. 2 bytes usually)
+
 		  if (bno_read_to_buffer(storage_buffer, 0x1A, 2) == 1){
-			  eul_x = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
+			  imu.eul_x = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
 		  }
 		  if (bno_read_to_buffer(storage_buffer, 0x1C, 2) == 1){
-			  eul_y = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
+			  imu.eul_y = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
 		  }
 		  if (bno_read_to_buffer(storage_buffer, 0x1E, 2) == 1){
-			  eul_z = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
+			  imu.eul_z = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
 		  }
 
 		  if (bno_read_to_buffer(storage_buffer, 0x28, 2) == 1){
-			  lin_x = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
+			  imu.lin_x = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
 		  }
 		  if (bno_read_to_buffer(storage_buffer, 0x2A, 2) == 1){
-			  lin_y = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
+			  imu.lin_y = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
 		  }
 		  if (bno_read_to_buffer(storage_buffer, 0x2C, 2) == 1){
-			  lin_z = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
+			  imu.lin_z = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
 		  }
 
 		  if (bno_read_to_buffer(storage_buffer, 0x34, 1) == 1){
-			  temp = (int16_t)(storage_buffer[2]);
+			  imu.temperature = (int16_t)(storage_buffer[2]);
 		  }
 
 		  if (bno_read_to_buffer(storage_buffer, 0x2A, 2) == 1){
-			  mag_x = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
+			  imu.mag_x = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
 		  }
 		  if (bno_read_to_buffer(storage_buffer, 0x28, 2) == 1){
-			  mag_y = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
+			  imu.mag_y = (int16_t)(storage_buffer[3] << 8 | storage_buffer[2]);
 		  }
 
 		  if (bno_read_to_buffer(storage_buffer, 0x34, 1) == 1){
-			  mag_z = (int16_t)(storage_buffer[2]);
+			  imu.mag_z = (int16_t)(storage_buffer[2]);
 		  }
 
-		  eul_x = eul_x / 16;
-		  eul_y = eul_y / 16;
-		  eul_z = eul_z / 16;
-		  lin_x = lin_x / 1;
-		  lin_y = lin_y / 1;
-		  lin_z = lin_z / 1;
-		  temp = temp * 1;
+		  imu.eul_x /= 16;
+		  imu.eul_y /= 16;
+		  imu.eul_z /= 16;
+		  imu.lin_x /=  1;
+		  imu.lin_y /= 1;
+		  imu.lin_z /= 1;
+		  imu.temperature *= 1;
 
-		  // TODO: Figure out how to print floats.
-		  // print("lX: %.1f, lY: %.1f, lZ: %.1f, eX: %.1f, eY: %.1f, eZ: %.1f, Temp: %.1f\r\n", lin_x, lin_y, lin_z, eul_x, eul_y, eul_z, temp);
-		  print("lX: %d, lY: %d, lZ: %d, eX: %d, eY: %d, eZ: %d, Temp: %d\r\n", lin_y, lin_x, lin_z, eul_x, eul_y, eul_z, temp); // NOTE: LINEAR VALUES XYZ ARE NOT CORRESPONDING TO WHAT IS PRINTED!!!
+		  print("lX: %d, lY: %d, lZ: %d, eX: %d, eY: %d, eZ: %d, Temp: %d\r\n", imu.lin_y, imu.lin_x, imu.lin_z, imu.eul_x, imu.eul_y, imu.eul_z, imu.temperature);
 
-	  	  if (user_button == 1){
-	  		  state = demo_adc;
-	  		  user_button = 0;
-	  		  BSP_LED_Off(LED_GREEN);
-	  		  BSP_LED_On(LED_BLUE);
-	  		  HAL_Delay(200);
-	  		  BSP_LED_Off(LED_BLUE);
-	  	  }
+		  check_for_return();
+	  }
+	  else if (strcmp(user_command, "demo_maxm10s") == 0){
+    	  HAL_UART_Receive_IT(&hlpuart1, &rx_byte, 1);
+	      char line[RX_LINE_MAX];
+
+	      while (queue_pop(line))
+	      {
+	          parse_nmea(line);
+
+	          char out[128];
+
+	          int lat_i = (int)(gps.lat * 1000000);
+	          int lon_i = (int)(gps.lon * 1000000);
+	          int hdop_i = (int)(gps.hdop * 100);
+
+	          int len = snprintf(out, sizeof(out),
+	              "UTC:%s LATi:%d LONi:%d SAT:%d HDOPi:%d VALID:%d\r\n",
+	              gps.utc, lat_i, lon_i, gps.sats, hdop_i, gps.valid);
+	//          int len = snprintf(out, sizeof(out),
+	//                             "UTC:%s LAT:%.6f LON:%.6f SAT:%d HDOP:%.2f VALID:%d\r\n",
+	//                             gps.utc, gps.lat, gps.lon, gps.sats, gps.hdop, gps.valid);
+
+	          HAL_UART_Transmit(&huart1, (uint8_t*)out, len, 100);
+	      }
+
+	      HAL_Delay(1);
+
+	      check_for_return();
+	  }
+	  else if (strcmp(user_command, "demo_stx3") == 0){
+
+	  }
+
+	  else if (strcmp(user_command, "demo_motor") == 0){
+		  Motor_SetDirection(MOTOR_CW);
+		  Motor_SetSpeed(1);
+	  }
+	  else if (strcmp(user_command, "demo_motorlock") == 0){
+		  Motor_SetDirection(MOTOR_CW);
+		  Motor_SetSpeed(0.5);
+		  Lock_SetStatus(1);
+
+		  HAL_Delay(1000);
+		  Motor_SetDirection(MOTOR_CW);
+		  Motor_SetSpeed(1);
+		  Lock_SetStatus(0);
+
+		  HAL_Delay(10000);
+
+		  if (check_for_return() == 1){
+			  Motor_SetSpeed(0);
+			  Lock_SetStatus(0);
+		  }
+	  }
+	  else if (strcmp(user_command, "demo_lock") == 0){
+
+	  }
+	  else if (strcmp(user_command, "text") == 0){
 
 	  }
 	  else{
+		  // Set user command to menu.
+		  strcpy(user_command, "menu");
 		  BSP_LED_Toggle(LED_RED);
-		  print("Error: Please Restart Demo.");
+		  print("Error: Unknown Command.\r\n");
 	  }
-  }
+
+	  // Final Modifications
   }
 
 
@@ -534,6 +849,7 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
   /* USER CODE END 3 */
+}
 
 /**
   * @brief System Clock Configuration

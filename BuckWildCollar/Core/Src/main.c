@@ -20,8 +20,6 @@
 #include "tim.h"
 #include "gpio.h"
 
-
-
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -32,6 +30,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <m_motor.h>
 
 #define BUFFER_SIZE 128
 #define UART_DELAY 10
@@ -55,6 +55,7 @@ static volatile uint32_t lines_drop = 0;
 
 typedef struct {
     char utc[16];
+    char dmy[16];
     float lat;
     float lon;
     int sats;
@@ -147,6 +148,10 @@ static int Get_ADC(){
 	//TODO: Low Add Calibration for Max / Min
 	// Get ADC value and put into global variable force_resistor
 
+	// Enable Pin PC1
+	GPIOC->ODR |= (1<<1);
+
+	// ADC Acquire
 	int adc_value;
 	int force_resistor;
 
@@ -156,6 +161,9 @@ static int Get_ADC(){
 	HAL_ADC_Stop(&hadc1); // Stop polling
 
 	force_resistor = adc_value; // TODO: Convert from adc_resistor to "resistance" value.
+
+	GPIOC->ODR &= (0<<1); // Shut Off Pin PC1
+
 	return force_resistor;
 }
 
@@ -387,6 +395,9 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
              strncpy(gps.utc, f[1] ? f[1] : "", sizeof(gps.utc)-1);
              gps.utc[sizeof(gps.utc)-1] = '\0';
 
+             strncpy(gps.dmy, f[8] ? f[8] : "", sizeof(gps.dmy)-1);
+             gps.dmy[sizeof(gps.dmy)-1] = '\0';
+
              gps.valid = (f[2] && f[2][0] == 'A');
 
              gps.lat = nmea_to_deg(f[3]);
@@ -405,30 +416,40 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
      }
  }
 
- void check_for_return(){
+ int check_for_return(){
 	 /*
+	  *
 	  * Allow code to run until enter is returned.
 	  *
 	  * CAUTION: The USART1 RX port will be in use. This works by both generating and waiting for the return signal to be an "all-in-one" command.
 	  * Note: The huart1 rx port may cause issues by creating interrupts where you don't want them to be.
+	  *
+	  * Returns 0 if no return
+	  * Returns 1 if return is detected (use in if statement to finish any processes before going back to menu)
 	  */
+
+	 // TODO: There has GOT to be a better way. Current method: setup the interrupt for the global 1-byte return buffer. Loop through code.
+	 // Code comes back to return check where you can if "enter" byte is received.
+	 // Perhaps using some kind of interrput from the good 'ol EXTI registers?
+
 	 if (return_buffer[0] == '\r'){
 		 return_buffer[0] = '\0'; // Reset buffer for next usage.
 		 HAL_UART_AbortReceive(&huart1); // Abort UART receive to clear up the buffer.
 		 strcpy(user_command, "menu");
-		 return;
+		 return 1;
 	 }
 	 HAL_UART_Receive_IT(&huart1, return_buffer, BUFFER_SIZE);
-	 return;
+	 return 0;
  }
 
- void wait_for_return(){
+ void wait_until_return(){
 	 /*
 	  * Pause until enter is returned.
 	  */
+
 	 return_buffer[0] = '\0';
 	 while (1){
-		 HAL_UART_Receive(&huart1, return_buffer, 1, 100);
+		 HAL_UART_Receive(&huart1, return_buffer, 1, 10);
 		 if (return_buffer[0] == 13){
 			 return_buffer[0] = '\0'; // Reset buffer for next usage.
 			 strcpy(user_command, "menu");
@@ -507,10 +528,10 @@ int main(void)
   MX_ICACHE_Init();
   MX_ADC1_Init();
   MX_LPUART1_UART_Init();
-  MX_USART1_UART_Init();
   MX_USART2_UART_Init();
   MX_USART3_UART_Init();
   MX_TIM2_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
@@ -519,6 +540,9 @@ int main(void)
   BSP_LED_Init(LED_GREEN);
   BSP_LED_Init(LED_BLUE);
   BSP_LED_Init(LED_RED);
+
+  BSP_LED_On(LED_BLUE);
+  BSP_LED_On(LED_RED);
 
   /* Initialize USER push-button, will be used to trigger an interrupt each time it's pressed.*/
   BSP_PB_Init(BUTTON_USER, BUTTON_MODE_EXTI);
@@ -562,14 +586,18 @@ int main(void)
   "░█████████   ░█████░██  ░███████  ░██    ░██   ░███     ░███ ░██ ██  ░█████░██\r\n"
   };
 
-  struct bno055 imu;
-  int adc_value;
-  active_state state = 0;
-
+  print("\r\n");
   for(int i=0; i< sizeof(text_menu) / sizeof(text_menu[0]); i++)
   {
 	  print(text_menu[i]);
   }
+
+  struct bno055 imu;
+  int adc_value;
+  active_state state = 0;
+
+  Motor_Initialize();
+  Lock_Initialize();
 
   while(1){
 
@@ -587,6 +615,7 @@ int main(void)
 		  uint8_t rx_byte[1];
 
 		  while(flag_uart_enter){
+			  // Yes I KNOW THIS IS UGLY OKAY???? BUT IT WORKS... I mean I'm passing an array because the stupid HAL doesn't do single bit UART sends.
 			  rx_byte[0] = 0;
 			  HAL_UART_Receive(&huart1, rx_byte, 1, 10);
 			  HAL_UART_Transmit_IT(&huart1, rx_byte, 1);
@@ -612,6 +641,7 @@ int main(void)
 	  }
 	  else if (strcmp(user_command, "help") == 0)
 	  {
+		  // TODO: Add optional variables... maybe with sttok with a way to check for additional inputs... nah not making a full command system ngl
 		  print("Available Commands:\r\n");
 		  print(
 				  "active\r\n"
@@ -619,23 +649,24 @@ int main(void)
 				  "help\r\n"
 				  "sleep\r\n"
 
-				  "demo_adc\r\n"
-				  "demo_bno055\r\n"
-				  "demo_fullsystem\r\n"
+				  //"demo_adc\r\n"
+				  //"demo_bno055\r\n"
+				  //"demo_fullsystem\r\n"
 				  "demo_lock\r\n"
 				  "demo_maxm10s\r\n"
 				  "demo_motor\r\n"
-				  "demo_stx3\r\n"
+				  "demo_motorlock\r\n"
+				  //"demo_stx3\r\n"
 
-				  "gps_receive\r\n"
-				  "gps_transmit\r\n"
-				  "motor_adjust\r\n"
-				  "power_peripherals\r\n"
-				  "power_sleep\r\n"
-				  "sense_bno055\r\n"
+				  //"gps_receive\r\n"
+				  //"gps_transmit\r\n"
+				  //"motor_adjust\r\n"
+				  //"power_peripherals\r\n"
+				  //"power_sleep\r\n"
+				  //"sense_bno055\r\n"
 				  );
 
-		wait_for_return();
+		wait_until_return();
 
 	  }
 	  else if (strcmp(user_command, "active") == 0){
@@ -661,18 +692,21 @@ int main(void)
 			          int lon_i = (int)(gps.lon * 1000000);
 			          int hdop_i = (int)(gps.hdop * 100);
 			          int len = snprintf(out, sizeof(out),
-			              "UTC:%s LATi:%d LONi:%d SAT:%d HDOPi:%d VALID:%d\r\n",
-			              gps.utc, lat_i, lon_i, gps.sats, hdop_i, gps.valid);
+			              "UTC:%s DMY:%s LATi:%d LONi:%d SAT:%d HDOPi:%d VALID:%d\r\n",
+			              gps.utc, gps.dmy, lat_i, lon_i, gps.sats, hdop_i, gps.valid);
 			          HAL_UART_Transmit(&huart1, (uint8_t*)out, len, 100);
 			      }
 			      HAL_Delay(1);
 			  }
 		  }
 		  else if(state == imu_receive){
+			  // TODO: Add BNO055
 
-
+			  state = force_receive;
 		  }
 		  else if(state == force_receive){
+			  adc_value = Get_ADC();
+
 
 		  }
 		  else if(state == motor_control){
@@ -764,8 +798,8 @@ int main(void)
 	          int hdop_i = (int)(gps.hdop * 100);
 
 	          int len = snprintf(out, sizeof(out),
-	              "UTC:%s LATi:%d LONi:%d SAT:%d HDOPi:%d VALID:%d\r\n",
-	              gps.utc, lat_i, lon_i, gps.sats, hdop_i, gps.valid);
+	              "DMY: %s, UTC:%s, LATi:%d, LONi:%d, SAT:%d, HDOPi:%d, VALID:%d\r\n",
+				  gps.dmy, gps.utc, lat_i, lon_i, gps.sats, hdop_i, gps.valid);
 	//          int len = snprintf(out, sizeof(out),
 	//                             "UTC:%s LAT:%.6f LON:%.6f SAT:%d HDOP:%.2f VALID:%d\r\n",
 	//                             gps.utc, gps.lat, gps.lon, gps.sats, gps.hdop, gps.valid);
@@ -777,8 +811,75 @@ int main(void)
 
 	      check_for_return();
 	  }
-	  else if (strcmp(user_command, "text") == 0){
+	  else if (strcmp(user_command, "gps_receive") == 0){
+		  // GPS demo code for recording .txt file
+		  int msg_num = 1;
 
+		  while(!check_for_return()){
+			  // ADC
+			  adc_value = Get_ADC();
+
+			  //GPS
+	    	  HAL_UART_Receive_IT(&hlpuart1, &rx_byte, 1);
+		      char line[RX_LINE_MAX];
+		      while (queue_pop(line))
+		      {
+		          parse_nmea(line);
+		          char out[128];
+		          int lat_i = (int)(gps.lat * 1000000);
+		          int lon_i = (int)(gps.lon * 1000000);
+		          int hdop_i = (int)(gps.hdop * 100);
+		          int len = snprintf(out, sizeof(out), "5, %d, 13, 0, %s, %s, %d, %d, %d, %d\r\n", msg_num, gps.dmy, gps.utc, hdop_i, adc_value, lon_i, lat_i);
+		          HAL_UART_Transmit(&huart1, (uint8_t*)out, len, 100);
+
+				  msg_num++;
+		      }
+		      HAL_Delay(1);
+
+			  // Index
+
+		      check_for_return(); // TODO: Is this necessary?
+		  }
+
+	  }
+	  else if (strcmp(user_command, "demo_motor") == 0){
+		  Motor_SetDirection(MOTOR_CW);
+		  Motor_SetSpeed(0.5);
+		  HAL_Delay(2000);
+
+		  Motor_SetSpeed(0);
+		  HAL_Delay(200);
+
+		  Motor_SetDirection(MOTOR_CCW);
+		  Motor_SetSpeed(0.5);
+		  HAL_Delay(2000);
+
+		  Motor_SetSpeed(0);
+		  HAL_Delay(200);
+	  }
+	  else if (strcmp(user_command, "demo_motorlock") == 0){
+		  Motor_SetDirection(MOTOR_CCW);
+		  Motor_SetSpeed(1);
+		  Lock_SetStatus(1);
+
+		  HAL_Delay(2000);
+		  Motor_SetDirection(MOTOR_CCW);
+		  Motor_SetSpeed(0);
+		  Lock_SetStatus(0);
+
+		  HAL_Delay(6000);
+
+		  if (check_for_return() == 1){
+			  Motor_SetSpeed(0);
+			  Lock_SetStatus(0);
+		  }
+	  }
+	  else if (strcmp(user_command, "demo_lock") == 0){
+
+	  }
+	  else if (strcmp(user_command, "test_mode") == 0){
+		  HAL_UART_Receive(&hlpuart1, lpuart1_rx_buffer, BUFFER_SIZE, 100);
+		  HAL_UART_Transmit(&huart1, lpuart1_rx_buffer, BUFFER_SIZE, 100);
 	  }
 	  else{
 		  // Set user command to menu.
