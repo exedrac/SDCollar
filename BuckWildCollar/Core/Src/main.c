@@ -33,13 +33,20 @@
 
 #include <m_motor.h>
 
+// UART Buffers
 #define BUFFER_SIZE 128
 #define UART_DELAY 10
 #define UART_GPS_DELAY 1000
 
+// GPS
 #define RX_LINE_MAX 128
 #define RX_QUEUE_LINES 16
 #define MIN_GPS_SIGNALS 3
+
+#define MAX_FORCE 12000
+#define MIN_FORCE 5000
+#define IDEAL_FORCE 9000
+#define IDEAL_BOUNDS 2000
 
 static uint8_t rx_byte;
 
@@ -55,6 +62,7 @@ static volatile uint32_t lines_drop = 0;
 
 typedef struct {
     char utc[16];
+    char prev_utc[16];
     char dmy[16];
     float lat;
     float lon;
@@ -650,20 +658,15 @@ int main(void)
 				  "sleep\r\n"
 
 				  "demo_adc\r\n"
-				  //"demo_bno055\r\n"
-				  //"demo_fullsystem\r\n"
+				  "demo_bno055\r\n"
 				  "demo_lock\r\n"
 				  "demo_maxm10s\r\n"
 				  "demo_motor\r\n"
 				  "demo_motorlock\r\n"
-				  //"demo_stx3\r\n"
 
-				  //"gps_receive\r\n"
-				  //"gps_transmit\r\n"
-				  //"motor_adjust\r\n"
+				  "gps_receive\r\n"
 				  //"power_peripherals\r\n"
 				  //"power_sleep\r\n"
-				  //"sense_bno055\r\n"
 				  );
 
 		wait_until_return();
@@ -677,11 +680,13 @@ int main(void)
 		   */
 
 		  if (state == init){
-
+			  print("init\r\n");
+			  state = gps_receive;
 		  }
 		  // TODO: Verify this code
 		  else if(state == gps_receive){
-			  while(gps.hdop < 5){
+			  print("gps_receive\r\n");
+			  while(gps.sats < 5){
 		    	  HAL_UART_Receive_IT(&hlpuart1, &rx_byte, 1);
 			      char line[RX_LINE_MAX];
 			      while (queue_pop(line))
@@ -698,25 +703,69 @@ int main(void)
 			      }
 			      HAL_Delay(1);
 			  }
+			  state = imu_receive;
 		  }
 		  else if(state == imu_receive){
 			  // TODO: Add BNO055
-
+			  print("imu_receive\r\n");
 			  state = force_receive;
 		  }
 		  else if(state == force_receive){
+			  print("force_receive\r\n");
 			  adc_value = Get_ADC();
 
-
+			  if (adc_value > MAX_FORCE || adc_value < MIN_FORCE){
+				  state = motor_control;
+			  }
+			  else{
+				  state = sleep;
+			  }
 		  }
 		  else if(state == motor_control){
+			  // TODO: SUPER JANK CODE
+			  print("motor_control\r\n");
+			  int msg = 0;
+			  while ((adc_value < (IDEAL_FORCE - IDEAL_BOUNDS) || adc_value > (IDEAL_FORCE + IDEAL_BOUNDS))){
+				  adc_value = Get_ADC();
+				  print("ADC: %d\r\n", adc_value);
+				  if (msg > 100){
+					  // Lock cooldown
+					  // Reset messages
+					  Lock_SetStatus(0);
+					  Motor_SetDirection(MOTOR_STOP);
+					  Motor_SetSpeed(0);
+					  HAL_Delay(10000);
+					  msg = 0;
+				  }
 
+				  if (adc_value > (IDEAL_FORCE + IDEAL_BOUNDS)){
+					  Lock_SetStatus(1);
+					  Motor_SetDirection(MOTOR_CW);
+					  Motor_SetSpeed(1);
+					  HAL_Delay(25);
+				  }
+				  else if (adc_value < MIN_FORCE - IDEAL_BOUNDS){
+					  Lock_SetStatus(1);
+					  Motor_SetDirection(MOTOR_CCW);
+					  Motor_SetSpeed(1);
+					  HAL_Delay(25);
+				  }
+				  msg++;
+			  }
+			  Lock_SetStatus(0);
+			  Motor_SetDirection(MOTOR_STOP);
+			  Motor_SetSpeed(0);
+			  state = gps_transmit;
 		  }
 		  else if (state == gps_transmit){
-
+			  // TODO
+			  print("gps_transmit\r\n");
+			  state = sleep;
 		  }
 		  else if (state == sleep){
-
+			  print("sleep\r\n");
+			  HAL_Delay(5000);
+			  state = gps_receive;
 		  }
 
 	  }
@@ -821,16 +870,20 @@ int main(void)
 
 			  //GPS
 	    	  HAL_UART_Receive_IT(&hlpuart1, &rx_byte, 1);
-		      char line[RX_LINE_MAX];
+		      char line[BUFFER_SIZE];
 		      while (queue_pop(line))
 		      {
+
 		          parse_nmea(line);
 		          char out[128];
 		          int lat_i = (int)(gps.lat * 1000000);
 		          int lon_i = (int)(gps.lon * 1000000);
+
 		          int hdop_i = (int)(gps.hdop * 100);
 		          int len = snprintf(out, sizeof(out), "5,%d,13,0,%s,%s,%d,%d,%d,%d\r\n", msg_num, gps.dmy, gps.utc, hdop_i, adc_value, lon_i, lat_i);
-		          HAL_UART_Transmit(&huart1, (uint8_t*)out, len, 100);
+
+			      HAL_UART_Transmit(&huart1, (uint8_t*)out, len, 100);
+
 				  msg_num++;
 		      }
 		  }
@@ -885,8 +938,13 @@ int main(void)
 		  }
 	  }
 	  else if (strcmp(user_command, "test_mode") == 0){
-		  HAL_UART_Receive(&hlpuart1, lpuart1_rx_buffer, BUFFER_SIZE, 100);
-		  HAL_UART_Transmit(&huart1, lpuart1_rx_buffer, BUFFER_SIZE, 100);
+		  Lock_SetStatus(1);
+		  Motor_SetSpeed(1);
+		  Motor_SetDirection(MOTOR_CCW);
+		  HAL_Delay(2000);
+		  Motor_SetSpeed(0);
+		  Lock_SetStatus(0);
+		  HAL_Delay(2000);
 	  }
 	  else{
 		  // Set user command to menu.
