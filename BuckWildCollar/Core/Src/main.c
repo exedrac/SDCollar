@@ -574,7 +574,6 @@ int main(void)
 		"demo_adc",
 		"demo_bno055",
 		"demo_maxm10s",
-		"demo_maxm10s_parsed",
 		"demo_motor",
 		"demo_lock",
 		"demo_stx3",
@@ -661,6 +660,7 @@ int main(void)
 				  "demo_bno055\r\n"
 				  "demo_lock\r\n"
 				  "demo_maxm10s\r\n"
+
 				  "demo_motor\r\n"
 				  "demo_motorlock\r\n"
 
@@ -688,23 +688,23 @@ int main(void)
 		  // TODO: Verify this code
 		  else if(state == gps_receive){
 			  print("gps_receive\r\n");
-			  while(gps.sats < 5){
-		    	  HAL_UART_Receive_IT(&hlpuart1, &rx_byte, 1);
-			      char line[RX_LINE_MAX];
-			      while (queue_pop(line))
-			      {
-			          parse_nmea(line);
-			          char out[128];
-			          int lat_i = (int)(gps.lat * 1000000);
-			          int lon_i = (int)(gps.lon * 1000000);
-			          int hdop_i = (int)(gps.hdop * 100);
-			          int len = snprintf(out, sizeof(out),
-			              "UTC:%s DMY:%s LATi:%d LONi:%d SAT:%d HDOPi:%d VALID:%d\r\n",
-			              gps.utc, gps.dmy, lat_i, lon_i, gps.sats, hdop_i, gps.valid);
-			          HAL_UART_Transmit(&huart1, (uint8_t*)out, len, 100);
-			      }
-			      HAL_Delay(1);
-			  }
+//			  while(gps.sats < 5){
+//		    	  HAL_UART_Receive_IT(&hlpuart1, &rx_byte, 1);
+//			      char line[RX_LINE_MAX];
+//			      while (queue_pop(line))
+//			      {
+//			          parse_nmea(line);
+//			          char out[128];
+//			          int lat_i = (int)(gps.lat * 1000000);
+//			          int lon_i = (int)(gps.lon * 1000000);
+//			          int hdop_i = (int)(gps.hdop * 100);
+//			          int len = snprintf(out, sizeof(out),
+//			              "UTC:%s DMY:%s LATi:%d LONi:%d SAT:%d HDOPi:%d VALID:%d\r\n",
+//			              gps.utc, gps.dmy, lat_i, lon_i, gps.sats, hdop_i, gps.valid);
+//			          HAL_UART_Transmit(&huart1, (uint8_t*)out, len, 100);
+//			      }
+//			      HAL_Delay(1);
+//			  }
 			  state = imu_receive;
 		  }
 		  else if(state == imu_receive){
@@ -960,14 +960,15 @@ int main(void)
 		  Motor_SetSpeed(1);
 		  Lock_SetStatus(1);
 
-		  HAL_Delay(1000);
-		  Motor_SetDirection(MOTOR_CCW);
-		  Motor_SetSpeed(0);
-		  Lock_SetStatus(0);
-
-		  HAL_Delay(3000);
+//		  HAL_Delay(1000);
+//		  Motor_SetDirection(MOTOR_CCW);
+//		  Motor_SetSpeed(0);
+//		  Lock_SetStatus(0);
+//
+//		  HAL_Delay(3000);
 
 		  if (check_for_return() == 1){
+			  Motor_SetDirection(MOTOR_STOP);
 			  Motor_SetSpeed(0);
 			  Lock_SetStatus(0);
 		  }
@@ -977,14 +978,15 @@ int main(void)
 		  Motor_SetSpeed(1);
 		  Lock_SetStatus(1);
 
-		  HAL_Delay(1000);
-		  Motor_SetDirection(MOTOR_CW);
-		  Motor_SetSpeed(0);
-		  Lock_SetStatus(0);
-
-		  HAL_Delay(3000);
+//		  HAL_Delay(1000);
+//		  Motor_SetDirection(MOTOR_CW);
+//		  Motor_SetSpeed(0);
+//		  Lock_SetStatus(0);
+//
+//		  HAL_Delay(3000);
 
 		  if (check_for_return() == 1){
+			  Motor_SetDirection(MOTOR_STOP);
 			  Motor_SetSpeed(0);
 			  Lock_SetStatus(0);
 		  }
